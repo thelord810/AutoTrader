@@ -145,7 +145,7 @@ def get_config(environment: str, global_config: dict, feed: str) -> dict:
                            'appKey': appKey,
                            'apiSecret': apiSecret
                            }
-                                       
+
         else:
             raise Exception(f"Unrecognised data feed: '{feed}'. " + \
                   "Please check global config and retry.")
@@ -298,10 +298,25 @@ class DataStream:
             multi_data = {}
             for granularity in self.strategy_params['granularity'].split(','):
                 data_func = getattr(self.get_data, self.feed.lower())
-                data = data_func(self.instrument, granularity=granularity, 
-                                 count=self.strategy_params['period'], 
-                                 start_time=self.data_start,
-                                 end_time=self.data_end)
+                if self.feed.lower()=="icici":
+                    extra_attributes = {"exchange": self.strategy_params['exchange'],
+                                         "product": self.strategy_params['product'],
+                                         "expiry": self.strategy_params['expiry'],
+                                         "option_type": self.strategy_params['option_type'],
+                                         "strike": self.strategy_params['strike'],
+                                        "start_date": self.strategy_params['start_time'],
+                                        "end_date": self.strategy_params['end_time']
+                                        }
+
+                    data = data_func(self.instrument, granularity=granularity,
+                                     count=self.strategy_params['period'],
+                                     start_time=self.data_start,
+                                     end_time=self.data_end, **extra_attributes)
+                else:
+                    data = data_func(self.instrument, granularity=granularity,
+                                     count=self.strategy_params['period'],
+                                     start_time=self.data_start,
+                                     end_time=self.data_end)
                 
                 multi_data[granularity] = data
             
