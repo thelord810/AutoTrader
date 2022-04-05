@@ -121,7 +121,7 @@ def get_config(environment: str, global_config: dict, feed: str) -> dict:
             # TODO - check port for paper trading
             data_source = 'IB'
             host = global_config['host'] if 'host' in global_config else '127.0.0.1'
-            port = global_config['port'] if 'port' in global_config else 7497
+            port = global_config['port'] if 'port' in global_config else 4002
             client_id = global_config['clientID'] if 'clientID' in global_config else 1
             read_only = global_config['read_only'] if 'read_only' in global_config else False
             account = global_config['account'] if 'account' in global_config else ''
