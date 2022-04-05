@@ -42,6 +42,7 @@ setuptools.setup(
         "v20 >= 3.0.25.0",
         "ib_insync >= 0.9.70",
         "importlib-resources",
+        "breeze_connect"
         ],
     setup_requires=[
             "setuptools_git",
