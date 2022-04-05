@@ -486,11 +486,11 @@ class AutoTraderBot:
                 last_price = liveprice_func(order)
             else:
                 try:
-                    last_price = self._get_data._pseduo_liveprice(last=current_bars[order.instrument].Close,
-                                                                  quote_price=quote_bars[order.instrument].Close)
+                    last_price = self._get_data._pseduo_liveprice(last=current_bars[order.instrument].close,
+                                                                  quote_price=quote_bars[order.instrument].close)
                 except:
-                    last_price = self._get_data._pseduo_liveprice(last=current_bars[order.data_name].Close,
-                                                                  quote_price=quote_bars[order.data_name].Close)
+                    last_price = self._get_data._pseduo_liveprice(last=current_bars[order.data_name].close,
+                                                                  quote_price=quote_bars[order.data_name].close)
             
             if order.order_type not in ['close', 'reduce']:
                 if order.direction < 0:
