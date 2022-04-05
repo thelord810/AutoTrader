@@ -136,7 +136,16 @@ def get_config(environment: str, global_config: dict, feed: str) -> dict:
         elif feed.upper() == 'YAHOO':
             data_source = 'yfinance'
             config_dict = {'data_source': data_source}
-            
+
+        elif feed.upper() == 'ICICI':
+            data_source = 'ICICI'
+            appKey = global_config['appKey'] if 'appKey' in global_config else "85450e08hYJ31324gc@727W093148d4E"
+            apiSecret = global_config['apiSecret'] if 'apiSecret' in global_config else "02z38W87%9B36I8*8#776K72Q64597wB"
+            config_dict = {'data_source': data_source,
+                           'appKey': appKey,
+                           'apiSecret': apiSecret
+                           }
+                                       
         else:
             raise Exception(f"Unrecognised data feed: '{feed}'. " + \
                   "Please check global config and retry.")
