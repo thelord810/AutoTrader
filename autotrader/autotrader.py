@@ -6,12 +6,14 @@ import pyfiglet
 import importlib
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 from ast import literal_eval
 from scipy.optimize import brute
 from autotrader.autoplot import AutoPlot
 from autotrader.autobot import AutoTraderBot
-from datetime import datetime, timedelta, timezone
-from autotrader.utilities import read_yaml, get_config, get_watchlist, DataStream
+from datetime import datetime, timezone
+from autotrader.utilities import (read_yaml, get_config, 
+                                  get_watchlist, DataStream, BacktestResults)
 
 
 class AutoTrader:
@@ -41,8 +43,6 @@ class AutoTrader:
         Plots backtest results of a trading Bot.
     plot_multibot_backtest(backtest_results=None)
         Plots backtest results for multiple trading bots.
-    analyse_backtest(bot=None)
-        Analyse backtest results of a single trading bot.
     multibot_backtest_analysis(bots=None)
         Analyses backtest results of multiple trading bots.
     print_backtest_results(backtest_results)
@@ -102,6 +102,7 @@ class AutoTrader:
         self._backtest_mode = False
         self._data_start = None
         self._data_end = None
+        self.backtest_results = None
         
         # Local Data Parameters
         self._data_indexing = 'open'
@@ -111,6 +112,7 @@ class AutoTrader:
         self._local_data = None
         self._local_quote_data = None
         self._auxdata = None
+        self._dynamic_data = False
         
         # Virtual Broker Parameters
         self._virtual_livetrading = False
@@ -146,6 +148,7 @@ class AutoTrader:
         self._chart_timeframe = 'default'
         self._chart_theme = 'caliber'
         self._use_strat_plot_data = False
+        self._plot_portolio_chart = False
         
     
     def __repr__(self):
@@ -311,6 +314,8 @@ class AutoTrader:
         None
             The strategy will be added to the active AutoTrader instance.
         """
+        # TODO - assign unique ID to different strategies to prevent instrument
+        # traded names conflict
         
         if self._home_dir is None:
             # Home directory has not yet been set, postpone strategy addition
@@ -328,9 +333,11 @@ class AutoTrader:
         else:
             # Home directory has been set
             if config_dict is None:
+                # Config YAML filepath provided
                 config_file_path = os.path.join(self._home_dir, 'config', config_filename)
                 new_strategy = read_yaml(config_file_path + '.yaml')
             else:
+                # Config dictionary provided directly
                 new_strategy = config_dict
             
             name = new_strategy['NAME']
@@ -471,7 +478,8 @@ class AutoTrader:
         
     def add_data(self, data_dict: dict = None, quote_data: dict = None, 
                  data_directory: str = 'price_data', abs_dir_path: str = None, 
-                 auxdata: dict = None, stream_object = None) -> None:
+                 auxdata: dict = None, stream_object = None,
+                 dynamic_data: bool = False) -> None:
         """Specify local data to run AutoTrader on.
 
         Parameters
@@ -499,6 +507,9 @@ class AutoTrader:
         stream_object : DataStream, optional
             A custom data stream object, allowing custom data pipelines. The 
             default is DataStream (from autotrader.utilities).
+        dynamic_data : bool, optional
+            A boolean flag to signal that the stream object provided should 
+            be refreshed each timestep of a backtest.
         
         Raises
         ------
@@ -610,6 +621,8 @@ class AutoTrader:
         # Assign data stream object
         if stream_object is not None:
             self._data_stream_object = stream_object
+        
+        self._dynamic_data = dynamic_data
     
     
     def scan(self, strategy_filename: str = None, 
@@ -684,7 +697,14 @@ class AutoTrader:
                 print("Warning: notify set to {} ".format(self._notify) + \
                       "during backtest. Setting to zero to prevent emails.")
                 self._notify = 0
-        
+            
+            # Check that the backtest does not request future data
+            if self._data_end > datetime.now(tz=timezone.utc):
+                print("Warning: you have requested backtest data into the "+\
+                      "future. The backtest end date will be adjsuted to "+ \
+                      "the current time.")
+                self._data_end = datetime.now(tz=timezone.utc)
+            
         if self._optimise_mode:
             if self._backtest_mode:
                 self._run_optimise()
@@ -710,7 +730,8 @@ class AutoTrader:
                       top_fig_height: int = 150, bottom_fig_height: int = 150, 
                       jupyter_notebook: bool = False, show_cancelled: bool = True,
                       chart_timeframe: str = 'default', chart_theme: str = 'caliber',
-                      use_strat_plot_data: bool = False) -> None:
+                      use_strat_plot_data: bool = False, 
+                      portfolio_chart: bool = False) -> None:
         """Configure the plot settings.
 
         Parameters
@@ -745,13 +766,15 @@ class AutoTrader:
             Boolean flag to use data from the strategy instead of candlestick
             data for the chart. If True, ensure your strategy has a timeseries
             data attribute named 'plot_data'. The default is False.
+        portfolio_chart : bool, optional
+            Override the default plot settings to plot the portfolio chart
+            even when running a single instrument backtest.
         
         Returns
         -------
         None
             The plot settings will be saved to the active AutoTrader instance.
         """
-        
         # Assign attributes
         self._max_indis_over    = max_indis_over
         self._max_indis_below   = max_indis_below
@@ -765,6 +788,7 @@ class AutoTrader:
         self._chart_timefram    = chart_timeframe
         self._chart_theme       = chart_theme
         self._use_strat_plot_data = use_strat_plot_data
+        self._plot_portolio_chart = portfolio_chart
     
     
     def get_bots_deployed(self, instrument: str = None) -> dict:
@@ -796,365 +820,51 @@ class AutoTrader:
                 bots = bots[instrument]
             except:
                 raise Exception(f"There were no bots found to be trading '{instrument}'.")
-        
-        if len(bots) == 1:
-            # Single bot backtest, return directly
-            bots = bots[list(bots.keys())[0]]
+        else:
+            if len(bots) == 1:
+                # Single bot backtest, return directly
+                bots = bots[list(bots.keys())[0]]
         
         return bots
         
     
-    def plot_backtest(self, bot=None) -> None:
-        """Plots backtest results of an AutoTrader Bot.
-        
-        Parameters
-        ----------
-        bot : AutoTrader bot instance, optional
-            AutoTrader bot class containing backtest results. The default 
-            is None.
-
-        Returns
-        -------
-        None
-            A chart will be generated and shown.
-        """
-        
-        if bot is None:
-            if len(self._bots_deployed) == 1:
-                bot = self._bots_deployed[0]
-            else:
-                # Multi-bot backtest
-                self.plot_multibot_backtest()
-                return
-        
-        data = bot._check_strategy_for_plot_data(self._use_strat_plot_data)
-        ap = self._instantiate_autoplot(data)
-        profit_df = pd.merge(bot.data, 
-                             bot.backtest_summary['trade_summary']['profit'], 
-                             left_index=True, right_index=True).profit.cumsum()
-        
-        ap.plot(backtest_dict=bot.backtest_summary, cumulative_PL=profit_df)
-    
-    
-    def plot_multibot_backtest(self) -> None:
-        """Plots the backtest results for multiple trading bots.
-        
-        Returns
-        -------
-        None
-            A chart will be generated and shown.
-        """
-        cpl_dict = {}
-        for bot in self._bots_deployed:
-            profit_df = pd.merge(bot.data, 
-                     bot.backtest_summary['trade_summary']['profit'], 
-                     left_index=True, right_index=True).profit.cumsum()
-            cpl_dict[bot.instrument] = profit_df
-        
-        ap = self._instantiate_autoplot(bot.data)
-        ap._plot_multibot_backtest(self.multibot_backtest_results, 
-                                   bot.backtest_summary['account_history']['NAV'], 
-                                   cpl_dict, 
-                                   bot.backtest_summary['account_history']['margin'])
-        
-    
-    def analyse_backtest(self, bot = None) -> dict:
-        """Analyses bot backtest results to extract key statistics.
-        
-        Parameters
-        ----------
-        bot : AutoTraderBot, optional
-            An AutoTraderBot class instance. The default is None.
-            
-        Returns
-        -------
-        backtest_results : dict
-            A dictionary of backtest results.
-        
-        Notes
-        -----
-        If no bot is supplied, the backtest will be analysed for all bots 
-        assiged during the backtest.
-        
-        See Also
-        --------
-        get_bots_deployed
-        """
-        
-        if bot is None:
-            if len(self._bots_deployed) == 1:
-                bot = self._bots_deployed[0]
-            else:
-                print("Reverting to multi-bot backtest.")
-                return self.multibot_backtest_analysis()
-                    
-        backtest_summary = bot.backtest_summary
-        
-        trade_summary   = backtest_summary['trade_summary']
-        instrument      = backtest_summary['instrument']
-        account_history = backtest_summary['account_history']
-        
-        cpl = trade_summary.profit.cumsum()
-        
-        backtest_results = {}
-        
-        # All trades
-        no_trades = len(trade_summary[trade_summary['status'] == 'closed'])
-        backtest_results['no_trades'] = no_trades
-        backtest_results['start'] = account_history.index[0]
-        backtest_results['end'] = account_history.index[-1]
-        
-        if no_trades > 0:
-            backtest_results['all_trades'] = {}
-            wins        = trade_summary[trade_summary.profit > 0]
-            avg_win     = np.mean(wins.profit)
-            max_win     = np.max(wins.profit)
-            loss        = trade_summary[trade_summary.profit < 0]
-            avg_loss    = abs(np.mean(loss.profit))
-            max_loss    = abs(np.min(loss.profit))
-            win_rate    = 100*len(wins)/no_trades
-            longest_win_streak, longest_lose_streak  = self._broker_utils.get_streaks(trade_summary)
-            avg_trade_duration = np.nanmean(trade_summary.trade_duration.values)
-            min_trade_duration = np.nanmin(trade_summary.trade_duration.values)
-            max_trade_duration = np.nanmax(trade_summary.trade_duration.values)
-            max_drawdown = min(account_history.drawdown)
-            total_fees = trade_summary.fees.sum()
-            
-            starting_balance = account_history.balance[0]
-            ending_balance = account_history.balance[-1]
-            ending_NAV = account_history.NAV[-1]
-            abs_return = ending_balance - starting_balance
-            pc_return = 100 * abs_return / starting_balance
-            
-            backtest_results['all_trades']['starting_balance'] = starting_balance
-            backtest_results['all_trades']['ending_balance'] = ending_balance
-            backtest_results['all_trades']['ending_NAV']    = ending_NAV
-            backtest_results['all_trades']['abs_return']    = abs_return
-            backtest_results['all_trades']['pc_return']     = pc_return
-            backtest_results['all_trades']['avg_win']       = avg_win
-            backtest_results['all_trades']['max_win']       = max_win
-            backtest_results['all_trades']['avg_loss']      = avg_loss
-            backtest_results['all_trades']['max_loss']      = max_loss
-            backtest_results['all_trades']['win_rate']      = win_rate
-            backtest_results['all_trades']['win_streak']    = longest_win_streak
-            backtest_results['all_trades']['lose_streak']   = longest_lose_streak
-            backtest_results['all_trades']['longest_trade'] = str(timedelta(seconds = int(max_trade_duration)))
-            backtest_results['all_trades']['shortest_trade'] = str(timedelta(seconds = int(min_trade_duration)))
-            backtest_results['all_trades']['avg_trade_duration'] = str(timedelta(seconds = int(avg_trade_duration)))
-            backtest_results['all_trades']['net_pl']        = cpl.values[-1]
-            backtest_results['all_trades']['max_drawdown']  = max_drawdown
-            backtest_results['all_trades']['total_fees']    = total_fees
-            
-        # Cancelled and open orders
-        cancelled_orders = self._broker.get_orders(instrument, 'cancelled')
-        open_trades = self._broker.get_positions(instrument)
-        backtest_results['no_open'] = len(open_trades)
-        backtest_results['no_cancelled'] = len(cancelled_orders)
-        
-        # Long trades
-        long_trades = trade_summary[trade_summary['direction'] > 0]
-        no_long = len(long_trades)
-        backtest_results['long_trades'] = {}
-        backtest_results['long_trades']['no_trades'] = no_long
-        if no_long > 0:
-            long_wins       = long_trades[long_trades.profit > 0]
-            avg_long_win    = np.mean(long_wins.profit)
-            max_long_win    = np.max(long_wins.profit)
-            long_loss       = long_trades[long_trades.profit < 0]
-            avg_long_loss   = abs(np.mean(long_loss.profit))
-            max_long_loss   = abs(np.min(long_loss.profit))
-            long_wr         = 100*len(long_trades[long_trades.profit > 0])/no_long
-            
-            backtest_results['long_trades']['avg_long_win']     = avg_long_win
-            backtest_results['long_trades']['max_long_win']     = max_long_win 
-            backtest_results['long_trades']['avg_long_loss']    = avg_long_loss
-            backtest_results['long_trades']['max_long_loss']    = max_long_loss
-            backtest_results['long_trades']['long_wr']          = long_wr
-            
-        # Short trades
-        short_trades    = trade_summary[trade_summary['direction'] < 0]
-        no_short        = len(short_trades)
-        backtest_results['short_trades'] = {}
-        backtest_results['short_trades']['no_trades'] = no_short
-        if no_short > 0:
-            short_wins      = short_trades[short_trades.profit > 0]
-            avg_short_win   = np.mean(short_wins.profit)
-            max_short_win   = np.max(short_wins.profit)
-            short_loss      = short_trades[short_trades.profit < 0]
-            avg_short_loss  = abs(np.mean(short_loss.profit))
-            max_short_loss  = abs(np.min(short_loss.profit))
-            short_wr        = 100*len(short_trades[short_trades.profit > 0])/no_short
-            
-            backtest_results['short_trades']['avg_short_win']   = avg_short_win
-            backtest_results['short_trades']['max_short_win']   = max_short_win
-            backtest_results['short_trades']['avg_short_loss']  = avg_short_loss
-            backtest_results['short_trades']['max_short_loss']  = max_short_loss
-            backtest_results['short_trades']['short_wr']        = short_wr
-        
-        return backtest_results
-    
-    
-    def multibot_backtest_analysis(self, bots: list = None) -> dict:
-        """Analyses backtest results of multiple bots to create an overall 
-        performance summary.
-        
-        Parameters
-        -----------
-        bots : list[AutoTraderBot]
-            A list of AutoTrader bots to analyse.
-        
-        Returns
-        -------
-        backtest_results : dict
-            A dictionary of backtest results.
-        
-        Notes
-        -----
-        If no bots are supplied, the backtest will be analysed for all bots 
-        assiged during the backtest.
-        
-        See Also
-        --------
-        get_bots_deployed
-        """
-        
-        instruments = []
-        win_rate    = []
-        no_trades   = []
-        avg_win     = []
-        max_win     = []
-        avg_loss    = []
-        max_loss    = []
-        no_long     = []
-        no_short    = []
-        
-        if bots is None:
-            bots = self._bots_deployed
-        
-        for bot in bots:
-            backtest_results = self.analyse_backtest(bot)
-            
-            instruments.append(bot.instrument)
-            no_trades.append(backtest_results['no_trades'])
-            if backtest_results['no_trades'] > 0:
-                win_rate.append(backtest_results['all_trades']['win_rate'])
-                avg_win.append(backtest_results['all_trades']['avg_win'])
-                max_win.append(backtest_results['all_trades']['max_win'])
-                avg_loss.append(backtest_results['all_trades']['avg_loss'])
-                max_loss.append(backtest_results['all_trades']['max_loss'])
-                no_long.append(backtest_results['long_trades']['no_trades'])
-                no_short.append(backtest_results['short_trades']['no_trades'])
-            else:
-                win_rate.append(np.nan)
-                avg_win.append(np.nan)
-                max_win.append(np.nan)
-                avg_loss.append(np.nan)
-                max_loss.append(np.nan)
-                no_long.append(np.nan)
-                no_short.append(np.nan)
-        
-        multibot_backtest_results = pd.DataFrame(data={'win_rate': win_rate,
-                                                       'no_trades': no_trades,
-                                                       'avg_win': avg_win,
-                                                       'max_win': max_win,
-                                                       'avg_loss': avg_loss,
-                                                       'max_loss': max_loss,
-                                                       'no_long': no_long,
-                                                       'no_short': no_short},
-                                                 index=instruments)
-        
-        return multibot_backtest_results
-        
-    
-    def print_multibot_backtest_results(self, backtest_results: dict = None) -> None:
-        """Prints to console the backtest results of a multi-bot backtest.
-        
-        Parameters
-        -----------
-        backtest_results : dict
-            A dictionary containing backtest results.
-            
-        See Also
-        --------
-        Analyse backtest method to generate backtest_results.
-        """
-        
-        bot = self._bots_deployed[0]
-        account_history = bot.backtest_summary['account_history']
-        
-        start_date = account_history.index[0]
-        end_date = account_history.index[-1]
-        
-        starting_balance = account_history.balance[0]
-        ending_balance = account_history.balance[-1]
-        ending_NAV = account_history.NAV[-1]
-        abs_return = ending_balance - starting_balance
-        pc_return = 100 * abs_return / starting_balance
-        
-        print("\n---------------------------------------------------")
-        print("            MultiBot Backtest Results")
-        print("---------------------------------------------------")
-        print("Start date:              {}".format(start_date))
-        print("End date:                {}".format(end_date))
-        print("Starting balance:        ${}".format(round(starting_balance, 2)))
-        print("Ending balance:          ${}".format(round(ending_balance, 2)))
-        print("Ending NAV:              ${}".format(round(ending_NAV, 2)))
-        print("Total return:            ${} ({}%)".format(round(abs_return, 2), 
-                                          round(pc_return, 1)))
-        
-        print("Instruments traded: ", backtest_results.index.values)
-        print("Total no. trades:   ", backtest_results.no_trades.sum())
-        print("Short trades:       ", backtest_results.no_short.sum(),
-              "({}%)".format(round(100*backtest_results.no_short.sum()/backtest_results.no_trades.sum(),2)))
-        print("Long trades:        ", backtest_results.no_long.sum(),
-              "({}%)".format(round(100*backtest_results.no_long.sum()/backtest_results.no_trades.sum(),2)))
-        
-        print("\nInstrument win rates (%):")
-        print(backtest_results[['win_rate', 'no_trades']])
-        print("\nMaximum/Average Win/Loss breakdown ($):")
-        print(backtest_results[["max_win", "max_loss", "avg_win", "avg_loss"]])
-        print("\nAverage Reward to Risk Ratio:")
-        print(round(backtest_results.avg_win / backtest_results.avg_loss,1))
-        print("")
-        
-    
-    @staticmethod
-    def print_backtest_results(backtest_results: dict) -> None:
+    def print_backtest_results(self, backtest_results: BacktestResults = None) -> None:
         """Prints backtest results.
 
         Parameters
         ----------
-        backtest_results : dict
-            The backtest results dictionary.
+        backtest_results : BacktestResults
+            The backtest results class object.
 
         Returns
         -------
         None
             Backtest results will be printed.
-
-        See Also
-        ----------
-        analyse_backtest
         """
-        start_date = backtest_results['start'].strftime("%b %d %Y %H:%M:%S")
-        end_date = backtest_results['end'].strftime("%b %d %Y %H:%M:%S")
         
-        no_trades   = backtest_results['no_trades']
+        if backtest_results is None:
+            backtest_results = self.backtest_results
+            
+        backtest_summary = backtest_results.summary()
+        start_date = backtest_summary['start'].strftime("%b %d %Y %H:%M:%S")
+        end_date = backtest_summary['end'].strftime("%b %d %Y %H:%M:%S")
+        
+        no_trades   = backtest_summary['no_trades']
         if no_trades > 0:
-            win_rate    = backtest_results['all_trades']['win_rate']
-            abs_return  = backtest_results['all_trades']['abs_return']
-            pc_return   = backtest_results['all_trades']['pc_return']
-            max_drawdown = backtest_results['all_trades']['max_drawdown']
-            max_win     = backtest_results['all_trades']['max_win']
-            avg_win     = backtest_results['all_trades']['avg_win']
-            max_loss    = backtest_results['all_trades']['max_loss']
-            avg_loss    = backtest_results['all_trades']['avg_loss']
-            longest_win_streak = backtest_results['all_trades']['win_streak']
-            longest_lose_streak = backtest_results['all_trades']['lose_streak']
-            total_fees = backtest_results['all_trades']['total_fees']
-            starting_balance = backtest_results['all_trades']['starting_balance']
-            ending_balance = backtest_results['all_trades']['ending_balance']
-            ending_NAV = backtest_results['all_trades']['ending_NAV']
+            win_rate = backtest_summary['all_trades']['win_rate']
+            abs_return = backtest_summary['all_trades']['abs_return']
+            pc_return = backtest_summary['all_trades']['pc_return']
+            max_drawdown = backtest_summary['all_trades']['max_drawdown']
+            max_win = backtest_summary['all_trades']['max_win']
+            avg_win = backtest_summary['all_trades']['avg_win']
+            max_loss = backtest_summary['all_trades']['max_loss']
+            avg_loss = backtest_summary['all_trades']['avg_loss']
+            longest_win_streak = backtest_summary['all_trades']['win_streak']
+            longest_lose_streak = backtest_summary['all_trades']['lose_streak']
+            total_fees = backtest_summary['all_trades']['total_fees']
+            starting_balance = backtest_summary['all_trades']['starting_balance']
+            ending_balance = backtest_summary['all_trades']['ending_balance']
+            ending_NAV = backtest_summary['all_trades']['ending_NAV']
         
         print("\n----------------------------------------------")
         print("               Backtest Results")
@@ -1177,29 +887,29 @@ class AutoTrader:
             print("Average loss:            -${}".format(round(avg_loss, 2)))
             print("Longest win streak:      {} trades".format(longest_win_streak))
             print("Longest losing streak:   {} trades".format(longest_lose_streak))
-            print("Average trade duration:  {}".format(backtest_results['all_trades']['avg_trade_duration']))
+            print("Average trade duration:  {}".format(backtest_summary['all_trades']['avg_trade_duration']))
             
         else:
             print("No trades taken.")
         
-        no_open = backtest_results['no_open']
-        no_cancelled = backtest_results['no_cancelled']
+        no_open = backtest_summary['no_open']
+        no_cancelled = backtest_summary['no_cancelled']
         
         if no_open > 0:
-            print("Orders still open:       {}".format(no_open))
+            print("Trades still open:       {}".format(no_open))
         if no_cancelled > 0:
             print("Cancelled orders:        {}".format(no_cancelled))
         
         # Long trades
-        no_long = backtest_results['long_trades']['no_trades']
+        no_long = backtest_summary['long_trades']['no_trades']
         print("\n            Summary of long trades")
         print("----------------------------------------------")
         if no_long > 0:
-            avg_long_win = backtest_results['long_trades']['avg_long_win']
-            max_long_win = backtest_results['long_trades']['max_long_win']
-            avg_long_loss = backtest_results['long_trades']['avg_long_loss']
-            max_long_loss = backtest_results['long_trades']['max_long_loss']
-            long_wr = backtest_results['long_trades']['long_wr']
+            avg_long_win = backtest_summary['long_trades']['avg_long_win']
+            max_long_win = backtest_summary['long_trades']['max_long_win']
+            avg_long_loss = backtest_summary['long_trades']['avg_long_loss']
+            max_long_loss = backtest_summary['long_trades']['max_long_loss']
+            long_wr = backtest_summary['long_trades']['long_wr']
             
             print("Number of long trades:   {}".format(no_long))
             print("Long win rate:           {}%".format(round(long_wr, 1)))
@@ -1211,15 +921,15 @@ class AutoTrader:
             print("There were no long trades.")
           
         # Short trades
-        no_short = backtest_results['short_trades']['no_trades']
+        no_short = backtest_summary['short_trades']['no_trades']
         print("\n             Summary of short trades")
         print("----------------------------------------------")
         if no_short > 0:
-            avg_short_win = backtest_results['short_trades']['avg_short_win']
-            max_short_win = backtest_results['short_trades']['max_short_win']
-            avg_short_loss = backtest_results['short_trades']['avg_short_loss']
-            max_short_loss = backtest_results['short_trades']['max_short_loss']
-            short_wr = backtest_results['short_trades']['short_wr']
+            avg_short_win = backtest_summary['short_trades']['avg_short_win']
+            max_short_win = backtest_summary['short_trades']['max_short_win']
+            avg_short_loss = backtest_summary['short_trades']['avg_short_loss']
+            max_short_loss = backtest_summary['short_trades']['max_short_loss']
+            short_wr = backtest_summary['short_trades']['short_wr']
             
             print("Number of short trades:  {}".format(no_short))
             print("short win rate:          {}%".format(round(short_wr, 1)))
@@ -1230,7 +940,69 @@ class AutoTrader:
             
         else:
             print("There were no short trades.")
+        
+        # Check for multiple instruments
+        if len(backtest_results.instruments_traded) > 1:
+            # Mutliple instruments traded
+            instruments = backtest_results.instruments_traded
+            trade_history = backtest_results.trade_history
+            instrument_trades = [trade_history[trade_history.instrument == i] for i in instruments]
+            # returns_per_instrument = [trade_history.profit[trade_history.instrument == i].cumsum() for i in instruments]
+            max_wins = [instrument_trades[i].profit.max() for i in range(len(instruments))]
+            max_losses = [instrument_trades[i].profit.min() for i in range(len(instruments))]
+            avg_wins = [instrument_trades[i].profit[instrument_trades[i].profit>0].mean() for i in range(len(instruments))]
+            avg_losses = [instrument_trades[i].profit[instrument_trades[i].profit<0].mean() for i in range(len(instruments))]
+            win_rates = [100*sum(instrument_trades[i].profit>0)/len(instrument_trades[i]) for i in range(len(instruments))]
+            
+            results = pd.DataFrame(data={'Instrument': instruments, 
+                                         'Max. Win': max_wins, 
+                                         'Max. Loss': max_losses, 
+                                         'Avg. Win': avg_wins, 
+                                         'Avg. Loss': avg_losses, 
+                                         'Win rate': win_rates})
+            
+            print("\n Instrument Breakdown:")
+            print(results.to_string(index=False))
 
+    
+    def plot_backtest(self, bot=None) -> None:
+        """Plots backtest results of an AutoTrader Bot.
+        
+        Parameters
+        ----------
+        bot : AutoTrader bot instance, optional
+            AutoTrader bot class containing backtest results. The default 
+            is None.
+
+        Returns
+        -------
+        None
+            A chart will be generated and shown.
+        """
+        
+        def portfolio_plot():
+            ap = self._instantiate_autoplot()
+            ap._plot_multibot_backtest(self.backtest_results)
+        
+        def single_instrument_plot(bot):
+            data = bot._check_strategy_for_plot_data(self._use_strat_plot_data)
+            ap = self._instantiate_autoplot(data)
+            ap.plot(backtest_dict=bot.backtest_results)
+        
+        if bot is None:
+            # No bot has been provided, select automatically
+            if len(self.backtest_results.instruments_traded) > 1 or \
+                len(self._bots_deployed) > 1 or self._plot_portolio_chart:
+                # Multi-product backtest
+                portfolio_plot()
+            else:
+                # Single product backtest
+                bot = self._bots_deployed[0]
+                single_instrument_plot(bot)
+        else:
+            # A bot has been provided
+            single_instrument_plot(bot)
+        
     
     def _main(self) -> None:
         """Run AutoTrader with configured settings.
@@ -1265,12 +1037,6 @@ class AutoTrader:
         self._assign_broker(broker_config)
         self._configure_emailing(global_config)
         
-        if self._backtest_mode:
-            NAV     = []
-            balance = []
-            margin  = []
-            tradetimes = []
-        
         if int(self._verbosity) > 0:
             if self._backtest_mode:
                 print("Beginning new backtest.")
@@ -1285,9 +1051,13 @@ class AutoTrader:
                 print("Current time: {}".format(datetime.now().strftime("%A, %B %d %Y, "+
                                                                   "%H:%M:%S")))
         
-        # Assign strategy to bot for each instrument in watchlist 
-        for strategy in self._strategy_configs:
-            for instrument in self._strategy_configs[strategy]['WATCHLIST']:
+        # Assign trading bots to each strategy
+        for strategy, config in self._strategy_configs.items():
+            # Check for portfolio strategy
+            portfolio = config['PORTFOLIO'] if 'PORTFOLIO' in config else False
+            watchlist = ["Portfolio"] if portfolio else config['WATCHLIST']
+            for instrument in watchlist:
+                # TODO - local data dict for portfolio
                 data_dict = self._local_data[instrument] \
                     if self._local_data is not None else None
                 quote_data_path = self._local_quote_data[instrument] \
@@ -1295,8 +1065,8 @@ class AutoTrader:
                 auxdata = self._auxdata[instrument] \
                     if self._auxdata is not None else None
                 
-                strategy_class = self._strategy_configs[strategy]['CLASS']
-                strategy_dict = {'config': self._strategy_configs[strategy],
+                strategy_class = config['CLASS']
+                strategy_dict = {'config': config,
                                  'class': self._strategy_classes[strategy_class] \
                                      if strategy_class in self._strategy_classes else None,
                                  'shutdown_method': self._shutdown_methods[strategy]}
@@ -1316,20 +1086,18 @@ class AutoTrader:
                 # Backtesting
                 end_time = self._data_end # datetime
                 timestamp = self._data_start # datetime
+                pbar = tqdm(total=int((self._data_end - self._data_start).total_seconds()),
+                            position=0, leave=True)
                 while timestamp <= end_time:
                     # Update each bot with latest data to generate signal
                     for bot in self._bots_deployed:
                         bot._update(timestamp=timestamp)
                         
-                    # Update backtest tracking stats
-                    NAV.append(self._broker.NAV)
-                    balance.append(self._broker.portfolio_balance)
-                    margin.append(self._broker.margin_available)
-                    tradetimes.append(timestamp)
-                    
                     # Iterate through time
                     timestamp += self._timestep
-        
+                    pbar.update(self._timestep.total_seconds())
+                pbar.close()
+                
             else:
                 # Live trading
                 instance_id = self._get_instance_id()
@@ -1355,12 +1123,6 @@ class AutoTrader:
                     for bot in self._bots_deployed:
                         bot._update(i=i)
                         
-                    # Update backtest tracking
-                    NAV.append(self._broker.NAV)
-                    balance.append(self._broker.portfolio_balance)
-                    margin.append(self._broker.margin_available)
-                    tradetimes.append(self._bots_deployed[0].data.index[i])
-        
             else:
                 # Live trading
                 bot._update(i=-1) # Process most recent signal
@@ -1374,34 +1136,20 @@ class AutoTrader:
             
         # Run instance shut-down routine
         if self._backtest_mode:
-            # Create backtest summary for each bot 
+            # Create total backtest results
+            self.backtest_results = BacktestResults(self._broker)
+            
+            # Create backtest results for each bot
             for bot in self._bots_deployed:
-                bot._create_backtest_summary(balance, NAV, margin, tradetimes)            
+                bot._create_backtest_results()            
             
             if int(self._verbosity) > 0:
-                print(f"Backtest complete (runtime {round((backtest_end_time - backtest_start_time), 3)} s).")
-                if len(self._bots_deployed) == 1:
-                    bot = self._bots_deployed[0]
-                    backtest_results = self.analyse_backtest(bot)
-                    self.print_backtest_results(backtest_results)
-                    
-                else:
-                    self.multibot_backtest_results = self.multibot_backtest_analysis()
-                    self.print_multibot_backtest_results(self.multibot_backtest_results)
-                    
-                    print("Results for multiple-instrument backtests have been")
-                    print("written to AutoTrader.multibot_backtest_results.")
-                    print("Individual bot results can be found in the")
-                    print("'bots_deployed' attribute of the AutoTrader instance.")
-            
-            if self._show_plot:
-                if len(self._bots_deployed) == 1:
-                    if len(self._broker.trades) > 0:
-                        self.plot_backtest(bot=self._bots_deployed[0])
+                print("Backtest complete (runtime " + \
+                      f"{round((backtest_end_time - backtest_start_time), 3)} s).")
+                self.print_backtest_results()
                 
-                else:
-                    # Backtest run with multiple bots
-                    self.plot_multibot_backtest()
+            if self._show_plot:
+                self.plot_backtest()
         
         elif self._scan_mode and self._show_plot:
             # Show plots for scanned instruments
@@ -1418,7 +1166,7 @@ class AutoTrader:
             
             elif self._virtual_livetrading:
                 # TODO - write broker stats to file (trade summary and so on)
-                # look to AutoTraderBot._create_backtest_summary for process
+                # look to AutoTraderBot._create_backtest_results for process
                 pass
         
 
@@ -1434,7 +1182,7 @@ class AutoTrader:
         self._bots_deployed = []
     
     
-    def _instantiate_autoplot(self, data: pd.DataFrame) -> AutoPlot:
+    def _instantiate_autoplot(self, data: pd.DataFrame = None) -> AutoPlot:
         """Creates instance of AutoPlot.
 
         Parameters
@@ -1560,12 +1308,7 @@ class AutoTrader:
         verbosity = self._verbosity
         self._verbosity = 0
         self._show_plot = False
-        
-        self.objective      = 'profit + MDD'
-        
-        ''' --------------------------------------------------------------- '''
-        '''                          Unpack user options                    '''
-        ''' --------------------------------------------------------------- '''
+        self.objective = 'profit + MDD'
         
         # Look in self._strategy_configs for config
         if len(self._strategy_configs) > 1:
@@ -1575,14 +1318,8 @@ class AutoTrader:
         else:
             config_dict = self._strategy_configs[list(self._strategy_configs.keys())[0]]
                 
-        ''' --------------------------------------------------------------- '''
-        '''                      Define optimisation inputs                 '''
-        ''' --------------------------------------------------------------- '''
         my_args = (config_dict, self._opt_params, self._verbosity)
         
-        ''' --------------------------------------------------------------- '''
-        '''                             Run Optimiser                       '''
-        ''' --------------------------------------------------------------- '''
         start = timeit.default_timer()
         result = brute(func         = self._optimisation_helper_function, 
                        ranges       = self._bounds, 
@@ -1591,28 +1328,9 @@ class AutoTrader:
                        full_output  = True)
         stop = timeit.default_timer()
         
-        ''' --------------------------------------------------------------- '''
-        '''      Delete historical data file after running optimisation     '''
-        ''' --------------------------------------------------------------- '''
-        granularity             = config_dict["INTERVAL"]
-        pair                    = config_dict["WATCHLIST"][0]
-        historical_data_name    = 'hist_{0}{1}.csv'.format(granularity, pair)
-        historical_quote_data_name = 'hist_{0}{1}_quote.csv'.format(granularity, pair)
-        historical_data_file_path = os.path.join(self._home_dir, 
-                                                 'price_data',
-                                                 historical_data_name)
-        historical_quote_data_file_path = os.path.join(self._home_dir, 
-                                                       'price_data',
-                                                       historical_quote_data_name)
-        os.remove(historical_data_file_path)
-        os.remove(historical_quote_data_file_path)
-        
         opt_params = result[0]
         opt_value = result[1]
         
-        ''' --------------------------------------------------------------- '''
-        '''                           Print output                          '''
-        ''' --------------------------------------------------------------- '''
         print("\nOptimisation complete.")
         print('Time to run: {}s'.format(round((stop - start), 3)))
         print("Optimal parameters:")
@@ -1629,28 +1347,19 @@ class AutoTrader:
         """Helper function for optimising strategy parameters in AutoTrader.
         This function will parse the ordered params into the config dict.
         """
-        
-        ''' ------------------------------------------------------------------ '''
-        '''   Edit strategy parameters in config_dict using supplied params    '''
-        ''' ------------------------------------------------------------------ '''
         for parameter in config_dict['PARAMETERS']:
             if parameter in opt_params:
                 config_dict['PARAMETERS'][parameter] = params[opt_params.index(parameter)]
             else:
                 continue
-        
-        ''' ------------------------------------------------------------------ '''
-        '''           Run AutoTrader and evaluate objective function           '''
-        ''' ------------------------------------------------------------------ '''
+
         self._clear_strategies()
         self._clear_bots()
         self.add_strategy(config_dict = config_dict)
         self._main()
         
-        bot = self._bots_deployed[0]
-            
         try:
-            backtest_results = self.analyse_backtest(bot)
+            backtest_results = self.backtest_results.summary()
             objective = -backtest_results['all_trades']['ending_NAV']
         except:
             objective = 1000
@@ -1663,12 +1372,12 @@ class AutoTrader:
     def _check_bot_data(self) -> None:
         """Function to compare lengths of bot data. 
         """
-        
         data_lengths = [len(bot.data) for bot in self._bots_deployed]
-        
         if min(data_lengths) != np.mean(data_lengths):
-            print("\nWarning: mismatched data lengths detected. Correcting via row reduction.")
+            print("Warning: mismatched data lengths detected. "+\
+                  "Correcting via row reduction.")
             self._normalise_bot_data()
+            print("  Done.\n")
     
     
     def _normalise_bot_data(self) -> None:

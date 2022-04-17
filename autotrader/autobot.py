@@ -1,12 +1,11 @@
 import os
 import importlib
-import numpy as np
 import pandas as pd
 from autotrader.comms import emailing
 from datetime import datetime, timezone
 from autotrader.autodata import GetData
 from autotrader.brokers.trading import Order
-from autotrader.utilities import read_yaml, get_config
+from autotrader.utilities import read_yaml, get_config, BacktestResults
 
 
 class AutoTraderBot:
@@ -22,9 +21,9 @@ class AutoTraderBot:
         The OHLC quote data used by the bot.
     MTF_data : dict
         The multiple timeframe data used by the bot.
-    backtest_summary : dict
-        A dictionary containing results from the bot in backtest. This 
-        dictionary is available only after a backtest and has keys: 'data', 
+    backtest_results : BacktestResults
+        A class containing results from the bot in backtest. This 
+        is available only after a backtest and has attributes: 'data', 
         'account_history', 'trade_summary', 'indicators', 'instrument', 
         'interval', 'open_trades', 'cancelled_trades'.
     
@@ -84,7 +83,7 @@ class AutoTraderBot:
             in strategy_config else None
         sizing = strategy_config["SIZING"] if 'SIZING' \
             in strategy_config else None
-        params = strategy_config["PARAMETERS"]
+        params = strategy_config["PARAMETERS"] if "PARAMETERS" in strategy_config else {}
         strategy_params = params
         strategy_params['granularity'] = strategy_params['granularity'] \
             if 'granularity' in strategy_params else interval
@@ -98,6 +97,8 @@ class AutoTraderBot:
             if 'INCLUDE_POSITIONS' in strategy_config else False
         strategy_config['INCLUDE_BROKER'] = strategy_config['INCLUDE_BROKER'] \
             if 'INCLUDE_BROKER' in strategy_config else False
+        strategy_config['INCLUDE_STREAM'] = strategy_config['INCLUDE_STREAM'] \
+            if 'INCLUDE_STREAM' in strategy_config else False
         self._strategy_params = strategy_params
         
         # Import Strategy
@@ -135,6 +136,12 @@ class AutoTraderBot:
         self._data_filepaths = data_dict            # Either str or dict, or None
         self._auxdata_files = auxdata               # Either str or dict, or None
         
+        # Check for portfolio strategy
+        trade_portfolio = strategy_config['PORTFOLIO'] if 'PORTFOLIO' in \
+            strategy_config else False
+        
+        portfolio = strategy_config['WATCHLIST'] if trade_portfolio else False
+        
         # Fetch data
         self._get_data = GetData(broker_config, self._allow_dancing_bears,
                                  self._base_currency)
@@ -148,20 +155,25 @@ class AutoTraderBot:
                              "data_start": self._data_start,
                              "data_end": self._data_end,
                              "instrument": self.instrument,
-                             "feed": self._feed}
+                             "feed": self._feed,
+                             "portfolio": portfolio}
         self.Stream = self._data_stream_object(**stream_attributes)
         
         # Initial data call
         self._refresh_data(deploy_dt)
         
         # Instantiate Strategy
-        # TODO - data stream is passed in here...
+        strategy_inputs = {'parameters': params, 'data': self._strat_data,
+                           'instrument': instrument}
+        
         if strategy_config['INCLUDE_BROKER']:
-            my_strat = strategy(params, self._strat_data, instrument, 
-                                self._broker, self._broker_utils, 
-                                data_stream=self.Stream)
-        else:
-            my_strat = strategy(params, self._strat_data, instrument)
+            strategy_inputs['broker'] = self._broker
+            strategy_inputs['broker_utils'] = self._broker_utils
+        
+        if strategy_config['INCLUDE_STREAM']:
+            strategy_inputs['data_stream'] = self.Stream
+            
+        my_strat = strategy(**strategy_inputs)
             
         # Assign strategy to local attributes
         self._last_bars = None
@@ -172,7 +184,7 @@ class AutoTraderBot:
         # Assign strategy attributes for tick-based strategy development
         if self._backtest_mode:
             self._strategy._backtesting = True
-            self.backtest_summary = None
+            self.backtest_results = None
         if interval.split(',')[0] == 'tick':
             self._strategy._tick_data = True
         
@@ -208,6 +220,7 @@ class AutoTraderBot:
             Trade signals generated will be submitted to the broker.
 
         """
+        
         if self._run_mode == 'continuous':
             # Running in continuous update mode
             strat_data, current_bars, quote_bars, sufficient_data = self._check_data(timestamp, self._data_indexing)
@@ -333,10 +346,17 @@ class AutoTraderBot:
                                                    scan_details, 
                                                    self._email_params['mailing_list'],
                                                    self._email_params['host_email'])
-                    
+        
     
     def _refresh_data(self, timestamp: datetime = None, **kwargs):
-        """Refreshes the active Bot's data attributes for trading.
+        """Refreshes the active Bot's data attributes for trading. 
+        
+        When backtesting without dynamic data updates, the data attributes
+        of the bot will be constant. When using dynamic data, or when 
+        livetrading in continuous mode, the data attributes will change 
+        as time passes, reflecting more up-to-date data. This method refreshes
+        the data attributes for a given timestamp by calling the datastream 
+        object.
 
         Parameters
         ----------
@@ -492,7 +512,7 @@ class AutoTraderBot:
                     last_price = self._get_data._pseduo_liveprice(last=current_bars[order.data_name].Close,
                                                                   quote_price=quote_bars[order.data_name].Close)
             
-            if order.order_type not in ['close', 'reduce']:
+            if order.order_type not in ['close', 'reduce', 'modify']:
                 if order.direction < 0:
                     order_price = last_price['bid']
                     HCF = last_price['negativeHCF']
@@ -500,7 +520,7 @@ class AutoTraderBot:
                     order_price = last_price['ask']
                     HCF = last_price['positiveHCF']
             else:
-                # Close or reduce order type, provide dummy inputs
+                # Close, reduce or modify order type, provide dummy inputs
                 order_price = last_price['ask']
                 HCF = last_price['positiveHCF']
             
@@ -515,37 +535,15 @@ class AutoTraderBot:
             self._broker._update_positions(bar, product)
     
     
-    def _create_backtest_summary(self, balance: pd.Series, NAV: pd.Series, 
-                                margin: pd.Series, trade_times = None) -> dict:
+    def _create_backtest_results(self) -> dict:
         """Constructs backtest summary dictionary for further processing.
         """
-        trade_summary = self._broker_utils.trade_summary(trades=self._broker.trades,
-                                                         instrument=self.instrument)
-        order_summary = self._broker_utils.trade_summary(orders=self._broker.orders,
-                                                         instrument=self.instrument)
-        
-        if trade_times is None:
-            trade_times = self.data.index
-        
-        # closed_trades = trade_summary[trade_summary.status == 'closed']
-        open_trade_summary = trade_summary[trade_summary.status == 'open']
-        cancelled_summary = order_summary[order_summary.status == 'cancelled']
-        
-        backtest_dict = {}
-        backtest_dict['data'] = self.data
-        backtest_dict['account_history'] = pd.DataFrame(data={'balance': balance, 
-                                                              'NAV': NAV, 
-                                                              'margin': margin,
-                                                              'drawdown': np.array(NAV)/np.maximum.accumulate(NAV) - 1}, 
-                                                        index=trade_times)
-        backtest_dict['trade_summary'] = trade_summary
-        backtest_dict['indicators'] = self._strategy.indicators if hasattr(self._strategy, 'indicators') else None
-        backtest_dict['instrument'] = self.instrument
-        backtest_dict['interval'] = self._strategy_params['granularity']
-        backtest_dict['open_trades'] = open_trade_summary
-        backtest_dict['cancelled_trades'] = cancelled_summary
-        
-        self.backtest_summary = backtest_dict
+        backtest_results = BacktestResults(self._broker, self.instrument)
+        backtest_results.indicators = self._strategy.indicators if \
+            hasattr(self._strategy, 'indicators') else None
+        backtest_results.data = self.data
+        backtest_results.interval = self._strategy_params['granularity']
+        self.backtest_results = backtest_results
     
     
     def _get_iteration_range(self) -> int:
@@ -653,7 +651,11 @@ class AutoTraderBot:
                 
     
     def _check_data(self, timestamp: datetime, indexing: str = 'open') -> dict:
-        """Wrapper for multiple datasets contained in a dictionary.
+        """Function to return trading data based on the current timestamp. If 
+        dynamc_data updates are required (eg. when livetrading), the 
+        datastream will be refreshed each update to retrieve new data. The 
+        data will then be checked to ensure that there is no future data 
+        included.
 
         Parameters
         ----------
@@ -674,7 +676,6 @@ class AutoTraderBot:
             Boolean flag whether sufficient data is available.
 
         """
-        # TODO - add check of data frequency against update frequency
         
         def get_current_bars(data: pd.DataFrame, quote_data: bool = False,
                              processed_strategy_data: dict = None) -> dict:
@@ -696,7 +697,7 @@ class AutoTraderBot:
                 if 'aux' in original_strat_data:
                     base_data = original_strat_data['base']
                     processed_auxdata = self._check_auxdata(original_strat_data['aux'],
-                                    timestamp, indexing, bars, check_for_future_data)
+                                    timestamp, indexing, no_bars, check_for_future_data)
                 else:
                     # MTF data
                     base_data = original_strat_data
@@ -705,7 +706,7 @@ class AutoTraderBot:
                 processed_basedata = {}
                 for granularity, data in base_data.items():
                     processed_basedata[granularity] = self._check_ohlc_data(data, 
-                                timestamp, indexing, bars, check_for_future_data)
+                                timestamp, indexing, no_bars, check_for_future_data)
                 
                 # Combine the results of the conditionals above
                 strat_data = {}
@@ -721,17 +722,17 @@ class AutoTraderBot:
                                                 processed_strategy_data=strat_data)
                 
                 # Check that enough bars have accumulated
-                if len(first_tf_data) < bars:
+                if len(first_tf_data) < no_bars:
                     sufficient_data = False
                 
             elif isinstance(original_strat_data, pd.DataFrame):
                 strat_data = self._check_ohlc_data(original_strat_data, 
-                             timestamp, indexing, bars, check_for_future_data)
+                             timestamp, indexing, no_bars, check_for_future_data)
                 current_bars = get_current_bars(strat_data,
                                                 processed_strategy_data=strat_data)
                 
                 # Check that enough bars have accumulated
-                if len(strat_data) < bars:
+                if len(strat_data) < no_bars:
                     sufficient_data = False
             
             else:
@@ -740,22 +741,39 @@ class AutoTraderBot:
             return strat_data, current_bars, sufficient_data
         
         # Define minimum number of bars for strategy to run
-        bars = self._strategy_params['period']
+        no_bars = self._strategy_params['period']
         
         if self._backtest_mode:
             check_for_future_data = True
+            if self._dynamic_data:
+                self._refresh_data(timestamp)
         else:
-            # Livetrading; refresh all data
+            # Livetrading
             self._refresh_data(timestamp)
             check_for_future_data = False
-
+            
         strat_data, current_bars, sufficient_data = process_strat_data(self._strat_data, 
-                                                                      check_for_future_data)
+                                                                       check_for_future_data)
 
         # Process quote data
-        quote_data = self._check_ohlc_data(self.quote_data, timestamp, 
-                                           indexing, bars)
-        quote_bars = get_current_bars(quote_data, True, strat_data)
+        if isinstance(self.quote_data, dict):
+            processed_quote_data = {}
+            for instrument in self.quote_data:
+                processed_quote_data[instrument] = self._check_ohlc_data(self.quote_data[instrument], 
+                                                               timestamp, 
+                                                               indexing, 
+                                                               no_bars)
+            quote_data = processed_quote_data[instrument] # Dummy
+            
+        elif isinstance(self.quote_data, pd.DataFrame):
+            quote_data = self._check_ohlc_data(self.quote_data, timestamp, 
+                                               indexing, no_bars)
+            processed_quote_data = {self.instrument: quote_data}
+        else:
+            raise Exception("Unrecognised data type. Cannot process.")
+        
+        # Get quote bars
+        quote_bars = get_current_bars(quote_data, True, processed_quote_data)
         
         return strat_data, current_bars, quote_bars, sufficient_data
     
@@ -818,4 +836,12 @@ class AutoTraderBot:
                 shutdown_method()
             except AttributeError:
                 print(f"\nShutdown method '{self._strategy_shutdown_method}' not found!")
-            
+    
+    
+    def _replace_data(self, data: pd.DataFrame) -> None:
+        """Function to replace the data assigned locally and to the strategy.
+        Called when there is a mismatch in data lengths during multi-instrument
+        backtests in periodic update mode.
+        """
+        self.data = data
+        self._strategy.data = data

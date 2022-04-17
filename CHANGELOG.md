@@ -1,5 +1,32 @@
 # AutoTrader Changelog
 
+## Version 0.6.3 (Unreleased)
+### Features 
+- Portfolio strategies: include `"PORTFOLIO": True` in your strategy 
+  configuration to signal that the strategy is a portfolio-based strategy.
+  Doing so, data for each instrument in the watchlist will be passed to the
+  strategy, allowing a single strategy to control multiple instruments at 
+  once, as in a portfolio. Currently supported for continuous mode only.
+- Strategy configuration key `PARAMETERS` now optional.
+- Autodetection of multiple instrument backtests for plotting.
+- Option to select chart type (standard or portfolio) for single instrument
+  backtests, via `AutoTrader.plot_settings()`.
+
+
+## Version 0.6.2
+### Features
+- Named arguments for strategy initialisation: strategies must be constructed
+  from named arguments "parameters", "data" and "instrument". Additionally,
+  "broker" and "broker_utils", when including broker access, and "data_stream"
+  when including data stream access. This change was made for disambiguation of
+  input arguments.
+- Improvements to `AutoPlot`, including autoscaling of indicator figures
+  and backtest account history
+- Addition of `BacktestResults` class, improving readability and accessibility 
+  of backtest results.
+
+
+
 ## Version 0.6.1
 ### Features
 - Simpler imports: for example, `AutoTrader` can be imported 
@@ -13,6 +40,7 @@
 - Assign UTC timezone to data after downloading from yfinance
 - Fetch current positions from virtual broker after updating with latest
   data.
+- Duplicate bar checking method in `autobot`
 
 
 ## Version 0.6.0

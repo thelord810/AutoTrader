@@ -471,8 +471,9 @@ class GetData:
                            end      = end_time,
                            interval = granularity)
         
-        # Add UTC timezone
-        data.index = data.index.tz_localize(timezone.utc)
+        if data.index.tzinfo is None:
+            # Data is naive, add UTC timezone
+            data.index = data.index.tz_localize(timezone.utc)
         
         return data
     
