@@ -138,6 +138,8 @@ class GetData:
 
         df =  pd.DataFrame(hdata['Success'])
         df_simplified = df[['datetime', 'open', 'high', 'low', 'close', 'volume', 'open_interest', 'count']]
+        df_simplified.set_index('count', inplace=True)
+        df_simplified.rename(columns={'open':'Open','low':'Low','close':'Close','high':'High'}, inplace=True)
         return df_simplified
 
 
