@@ -123,7 +123,7 @@ def get_config(environment: str, global_config: dict, feed: str) -> dict:
             # TODO - check port for paper trading
             data_source = 'IB'
             host = global_config['host'] if 'host' in global_config else '127.0.0.1'
-            port = global_config['port'] if 'port' in global_config else 7497
+            port = global_config['port'] if 'port' in global_config else 4002
             client_id = global_config['clientID'] if 'clientID' in global_config else 1
             read_only = global_config['read_only'] if 'read_only' in global_config else False
             account = global_config['account'] if 'account' in global_config else ''
@@ -138,7 +138,16 @@ def get_config(environment: str, global_config: dict, feed: str) -> dict:
         elif feed.upper() == 'YAHOO':
             data_source = 'yfinance'
             config_dict = {'data_source': data_source}
-            
+
+        elif feed.upper() == 'ICICI':
+            data_source = 'ICICI'
+            appKey = global_config['appKey'] if 'appKey' in global_config else "85450e08hYJ31324gc@727W093148d4E"
+            apiSecret = global_config['apiSecret'] if 'apiSecret' in global_config else "02z38W87%9B36I8*8#776K72Q64597wB"
+            config_dict = {'data_source': data_source,
+                           'appKey': appKey,
+                           'apiSecret': apiSecret
+                           }
+
         else:
             raise Exception(f"Unrecognised data feed: '{feed}'. " + \
                   "Please check global config and retry.")
@@ -682,11 +691,25 @@ class DataStream:
                 granularities = self.strategy_params['granularity'].split(',')
                 data_key = granularities[0]
                 for granularity in granularities:
-                    data = data_func(self.instrument, granularity=granularity, 
-                                     count=self.strategy_params['period'], 
-                                     start_time=self.data_start,
-                                     end_time=self.data_end)
-                    multi_data[granularity] = data
+                  if self.feed.lower()=="icici":
+                      extra_attributes = {"exchange": self.strategy_params['exchange'],
+                                           "product": self.strategy_params['product'],
+                                           "expiry": self.strategy_params['expiry'],
+                                           "option_type": self.strategy_params['option_type'],
+                                           "strike": self.strategy_params['strike'],
+                                          "start_date": self.strategy_params['start_time'],
+                                          "end_date": self.strategy_params['end_time']
+                                          }
+
+                      data = data_func(self.instrument, granularity=granularity,
+                                       count=self.strategy_params['period'],
+                                       start_time=self.data_start,
+                                       end_time=self.data_end, **extra_attributes)
+                  else:
+                      data = data_func(self.instrument, granularity=granularity,
+                                       count=self.strategy_params['period'],
+                                       start_time=self.data_start,
+                                       end_time=self.data_end)
                 
             # Take data as first element of multi-data
             data = multi_data[data_key]

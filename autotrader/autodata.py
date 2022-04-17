@@ -2,6 +2,8 @@ import v20
 import ib_insync
 import pandas as pd
 import yfinance as yf
+import requests
+from breeze_connect import BreezeConnect
 from typing import Union
 from autotrader.brokers.trading import Order
 from datetime import datetime, timedelta, timezone
@@ -69,10 +71,84 @@ class GetData:
                 self.ibapi = ib_insync.IB()
                 self.ibapi.connect(host=host, port=port, clientId=client_id, 
                                    readonly=read_only, account=account)
-            
+
+            elif broker_config['data_source'] == 'ICICI':
+                appKey = broker_config['appKey']
+                apiSecret = broker_config['apiSecret']
+
+                r = requests.get(url=f"https://icicisession.herokuapp.com/token?appkey={appKey}")
+                stoken = r.json()
+                self.iciciapi  = BreezeConnect(api_key=appKey)
+                self.iciciapi.generate_session(api_secret=apiSecret, session_token=stoken)    
+
         self.allow_dancing_bears = allow_dancing_bears
         self.home_currency = home_currency
-        
+
+    def icici(self, instrument: str, granularity: str, count: int,
+           start_time: datetime = None, end_time: datetime = None,
+           order: Order = None, durationStr: str = '10 mins', **kwargs) -> pd.DataFrame:
+        """
+
+        Parameters
+        ----------
+        instrument : str
+            The instrument to fetch data for..
+        granularity : str
+            The candlestick granularity (eg. "1min", "1day")..
+        count : int
+            DESCRIPTION.
+        start_time : datetime, optional
+            DESCRIPTION. The default is None.
+        end_time : datetime, optional
+            DESCRIPTION. The default is None.
+        order : Order, optional
+            DESCRIPTION. The default is None.
+        **kwargs : TYPE
+            DESCRIPTION.
+
+        Raises
+        ------
+        NotImplementedError
+            DESCRIPTION.
+
+        Returns
+        -------
+        df : TYPE
+            DESCRIPTION.
+
+        Warnings
+        --------
+        This method is not recommended due to its high API poll rate.
+
+        References
+        ----------
+        https://ib-insync.readthedocs.io/api.html?highlight=reqhistoricaldata#
+        """
+
+        #contract = IB_Utils.build_contract(order)
+        hdata = self.iciciapi.get_historical_data(interval=granularity,
+                                          from_date=kwargs['start_date'],
+                                          to_date=kwargs['end_date'],
+                                          stock_code=instrument,
+                                          exchange_code=kwargs['exchange'],
+                                          product_type=kwargs['product'],
+                                          expiry_date=kwargs['expiry'],
+                                          right=kwargs['option_type'],
+                                          strike_price=kwargs['strike'])
+
+        df =  pd.DataFrame(hdata['Success'])
+        df_simplified = df[['datetime', 'open', 'high', 'low', 'close', 'volume', 'open_interest', 'count']]
+        df_simplified.set_index('count', inplace=True)
+        df_simplified.rename(columns={'open':'Open','low':'Low','close':'Close','high':'High'}, inplace=True)
+        return df_simplified
+
+
+    def _icici_quote_data(self, data: pd.DataFrame, pair: str, granularity: str,
+                          start_time: datetime, end_time: datetime):
+        """Function to retrieve price conversion data.
+        """
+
+        return data       
 
     def oanda(self, instrument: str, granularity: str, count: int = None, 
               start_time: datetime = None, end_time: datetime = None) -> pd.DataFrame:

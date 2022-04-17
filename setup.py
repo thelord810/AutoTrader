@@ -43,6 +43,7 @@ setuptools.setup(
         "ib_insync >= 0.9.70",
         "tqdm>=4.64.0",
         "importlib-resources",
+        "breeze_connect"
         ],
     setup_requires=[
             "setuptools_git",
