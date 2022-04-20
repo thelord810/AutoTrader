@@ -727,7 +727,8 @@ class AutoPlot:
                      'bands'       : 'over',
                      'threshold'   : 'below',
                      'trading-session': 'over',
-                     'bricks'      : 'below'}
+                     'bricks'      : 'below',
+                     'PSAR'        : 'over'}
         
         # Plot indicators
         indis_over = 0
@@ -773,6 +774,11 @@ class AutoPlot:
                         self._plot_trading_session(indicators[indicator],
                                                    linked_fig)
                     
+                    elif indi_type == 'PSAR':
+                        self._plot_scatter(linked_fig, 
+                                           indicators[indicator]['data'],
+                                           legend_label=indicator)
+                        
                     else:
                         # Generic overlay indicator - plot as line
                         if isinstance(indicators[indicator]['data'], pd.Series):
@@ -872,7 +878,7 @@ class AutoPlot:
                         new_fig = self._plot_lineV2(line_source, linked_fig,
                                                 indicators[indicator]['data'].name, 
                                                 new_fig=True,
-                                                legend_label=indicators[indicator]['data'].name,
+                                                legend_label=indicator,
                                                 fig_height=130)
                         self._add_to_autoscale_args(line_source, new_fig.y_range)
                         
@@ -898,6 +904,9 @@ class AutoPlot:
     
     def _create_line_source(self, indicator_data):
         """Create ColumndDataSource from indicator line data."""
+        # Overwrite indicator data name to prevent conflict
+        data_name = 'plot_data'
+        indicator_data.name = data_name
         merged_indicator_data = pd.merge(self._data, 
                                          indicator_data, 
                                          left_on='date', 
@@ -997,6 +1006,29 @@ class AutoPlot:
             fig.add_tools(fig_hovertool)
         
         return fig
+    
+    
+    def _plot_scatter(self, linked_fig, data, new_fig=False, fig_height=150,
+                      fig_title=None, legend_label=None):
+        """Creates a scatter plot.
+        """
+        # Initiate figure
+        if new_fig:
+            fig = figure(plot_width = linked_fig.plot_width,
+                         plot_height = fig_height,
+                         title = fig_title,
+                         tools = self._fig_tools,
+                         active_drag = 'pan',
+                         active_scroll = 'wheel_zoom',
+                         x_range = linked_fig.x_range)
+        else:
+            fig = linked_fig
+        
+        # Add glyphs
+        merged_data = self._merge_data(data, 'plot_data')
+        source = ColumnDataSource(merged_data)
+        fig.circle('data_index', 'plot_data', legend_label=legend_label,
+                   source=source)
     
     
     ''' ------------------------ OVERLAY PLOTTING ------------------------- '''
@@ -1322,13 +1354,17 @@ class AutoPlot:
         
         if cancelled_summary is False and open_summary is False:
             
-            if self._backtest_data is not None:
-                # Charting on different timeframe data
-                exit_summary = pd.merge(self._backtest_data, exit_summary, 
-                                        left_index=True, right_on='exit_time')
+            if any(exit_summary.status=='closed'):
+                if self._backtest_data is not None:
+                    # Charting on different timeframe data
+                    exit_summary = pd.merge(self._backtest_data, exit_summary, 
+                                            left_index=True, right_on='exit_time')
+                else:
+                    exit_summary = pd.merge(self._data, exit_summary, 
+                                            left_on='date', right_on='exit_time')
             else:
-                exit_summary = pd.merge(self._data, exit_summary, 
-                                        left_on='date', right_on='exit_time')
+                # No trades were closed
+                exit_summary = None
             
             profitable_longs = long_trades[(long_trades['profit'] > 0)]
             unprofitable_longs = long_trades[(long_trades['profit'] < 0)]
@@ -1406,7 +1442,8 @@ class AutoPlot:
                              'dash', 'black', 'Take profit', linked_fig)
         
         # Position exits
-        if cancelled_summary is False and open_summary is False:
+        if cancelled_summary is False and open_summary is False and \
+            exit_summary is not None:
             self._plot_trade(list(exit_summary.data_index),
                              list(exit_summary.exit_price.values),
                              'circle', 'black', 'Position exit', linked_fig,

@@ -11,6 +11,11 @@
 - Autodetection of multiple instrument backtests for plotting.
 - Option to select chart type (standard or portfolio) for single instrument
   backtests, via `AutoTrader.plot_settings()`.
+- Option to specify `base_size` when creating an `Order`. This refers to the 
+  trade size calculated using the base currency, pre-conversion using the 
+  account's home currency (particularly useful for Forex traders).
+- `modify` order types are now supported by the Oanda broker API, allowing
+  a trader to change the take profit or stop loss attached to an open trade.
 
 
 ## Version 0.6.2
