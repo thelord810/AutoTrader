@@ -273,8 +273,19 @@ class AutoPlot:
                                       hover_name='NAV')
             # Add equity balance
             self._plot_lineV2(topsource, top_fig, "equity", legend_label='Account Balance', 
-                            hover_name='P/L', line_colour='blue')
+                             line_colour='blue', hover_name='equity')
             
+            # Add hover tool
+            top_fig_hovertool = HoverTool(tooltips = [("Date", "@date{%b %d %H:%M}"),
+                                                      ("Equity", "@{equity}{%0.2f}"),
+                                                      ("NAV", "@{NAV}{%0.2f}")
+                                                      ], 
+                                          formatters={'@{equity}': 'printf',
+                                                      '@{NAV}': 'printf',
+                                                      '@date': 'datetime'},
+                                          mode='mouse')
+            top_fig.add_tools(top_fig_hovertool)
+                
             # Append autoscale args
             self.autoscale_args['top_range'] = top_fig.y_range
             self.autoscale_args['top_source'] = topsource
@@ -728,7 +739,8 @@ class AutoPlot:
                      'threshold'   : 'below',
                      'trading-session': 'over',
                      'bricks'      : 'below',
-                     'PSAR'        : 'over'}
+                     'PSAR'        : 'over',
+                     'bars'        : 'below'}
         
         # Plot indicators
         indis_over = 0
@@ -843,18 +855,16 @@ class AutoPlot:
                         for dataset in list(indicators[indicator].keys())[1:]:
                             if type(indicators[indicator][dataset]['data']) == pd.Series:
                                 # Merge indexes
-                                if indicators[indicator][dataset]['data'].name is None:
-                                    indicators[indicator][dataset]['data'].name = 'name'
+                                data_name = 'plot_data'
+                                indicators[indicator][dataset]['data'].name = data_name
                                 merged_indicator_data = pd.merge(self._data, 
                                                                  indicators[indicator][dataset]['data'], 
-                                                                 left_on='date', 
-                                                                 right_index=True)
-                                line_data = merged_indicator_data[indicators[indicator][dataset]['data'].name]
+                                                                 left_on='date', right_index=True)
+                                line_data = merged_indicator_data[data_name]
                                 x_vals = line_data.index
                                 y_vals = line_data.values
                             else:
-                                x_vals = x_range
-                                y_vals = indicators[indicator][dataset]['data']
+                                raise Exception("Plot data must be a timeseries.")
                             
                             new_fig.line(x_vals, y_vals,
                                          line_color = indicators[indicator][dataset]['color'] if \
@@ -864,6 +874,19 @@ class AutoPlot:
                     elif indi_type == 'threshold':
                         new_fig = self._plot_bands(indicators[indicator], 
                                          linked_fig=linked_fig, legend_label=indicator)
+                    
+                    elif indi_type == 'bars':
+                        frame = indicators[indicator]['data'].to_frame()
+                        frame['color'] = 'grey'
+                        source = self._create_line_source(indicators[indicator]['data'])
+                        
+                        # Add color to data
+                        source.add(frame['color'].values, 'color')
+                        
+                        new_fig = self._plot_bars(0, 'plot_data', source, 
+                                                  linked_fig=linked_fig,
+                                                  fig_height=self._bottom_fig_height,
+                                                  hover_name='plot_data')
                     
                     else:
                         # Generic indicator - plot as line
@@ -1510,18 +1533,28 @@ class AutoPlot:
     ''' -------------------- MISCELLANEOUS PLOTTING ----------------------- '''
     def _plot_bars(self, x_vals, data_name, source, linked_fig=None, fig_height=250,
                    fig_title=None, hover_name=None):
-        fig = figure(x_range = x_vals,
-                     title = fig_title,
-                     toolbar_location = None,
-                     tools = 'hover',
-                     tooltips = "@index: @{}".format(hover_name),
-                     plot_height = fig_height)
+        x_range = x_vals if linked_fig is None else linked_fig.x_range
+        tooltips = f"@index: @{hover_name}" if linked_fig is None else f"@{hover_name}"
+        fig = figure(x_range=x_range,
+                     title=fig_title,
+                     toolbar_location=None,
+                     tools=self._fig_tools + ",ywheel_zoom",
+                     tooltips=tooltips,
+                     plot_height=fig_height,
+                     active_drag='pan',
+                     active_scroll='wheel_zoom')
         
-        fig.vbar(x = 'index', 
-                 top = data_name,
-                 width = 0.9,
-                 color = 'color',
-                 source = source)
+        fig.vbar(x='index', 
+                 top=data_name,
+                 width=0.9,
+                 color='color',
+                 source=source)
+        
+        if linked_fig is not None:
+            # Plotting indicator, define autoscale arguments
+            source.add(source.data['plot_data'], 'High')
+            source.add(np.zeros(len(source.data['plot_data'])), 'Low')
+            self._add_to_autoscale_args(source, fig.y_range)
         
         return fig
     
