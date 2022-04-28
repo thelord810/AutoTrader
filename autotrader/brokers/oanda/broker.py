@@ -337,11 +337,11 @@ class Broker:
         
         self._check_connection()
         
-        response        = self.api.instrument.candles(instrument,
-                                                      granularity = interval,
-                                                      fromTime = from_time,
-                                                      toTime = to_time
-                                                      )
+        response = self.api.instrument.candles(instrument,
+                                               granularity = interval,
+                                               fromTime = from_time,
+                                               toTime = to_time
+                                               )
         
         data = self.utils.response_to_df(response)
         
@@ -512,7 +512,7 @@ class Broker:
         """Places market order.
         """
         self._check_connection()
-        stop_loss_details = self._get_stop_loss_details(order)
+        stop_loss_order = self._get_stop_loss_order(order)
         take_profit_details = self._get_take_profit_details(order)
         
         # Check position size
@@ -523,7 +523,8 @@ class Broker:
                                          instrument = order.instrument,
                                          units = order.direction * size,
                                          takeProfitOnFill = take_profit_details,
-                                         stopLossOnFill = stop_loss_details,)
+                                         **stop_loss_order)
+        
         return response
     
     
@@ -531,9 +532,10 @@ class Broker:
         """Places MarketIfTouchedOrder with Oanda.
         https://developer.oanda.com/rest-live-v20/order-df/
         """
+        # TODO - this submits market if touched, not stopOrder type
         self._check_connection()
         
-        stop_loss_details = self._get_stop_loss_details(order)
+        stop_loss_order = self._get_stop_loss_order(order)
         take_profit_details = self._get_take_profit_details(order)
         
         # Check and correct order stop price
@@ -549,17 +551,34 @@ class Broker:
                                                     units = order.direction * order.size,
                                                     price = str(price),
                                                     takeProfitOnFill = take_profit_details,
-                                                    stopLossOnFill = stop_loss_details,
-                                                    triggerCondition = trigger_condition)
+                                                    triggerCondition = trigger_condition,
+                                                    **stop_loss_order)
         return response
     
     
     def _place_limit_order(self, order: Order):
-        """(NOT YET IMPLEMENTED) PLaces limit order. 
+        """PLaces a limit order. 
         """
-        raise Exception("Limit orders are not yet implemented for Oanda. "+\
-                        "Please raise an issue on GitHub.")
+        self._check_connection()
         
+        stop_loss_order = self._get_stop_loss_order(order)
+        take_profit_details = self._get_take_profit_details(order)
+        
+        # Check and correct order stop price
+        price = self._check_precision(order.instrument, 
+                                      order.order_limit_price)
+        
+        trigger_condition = order.trigger_price
+        
+        response = self.api.order.limit(accountID = self.ACCOUNT_ID,
+                                        instrument = order.instrument,
+                                        units = order.direction * order.size,
+                                        price = str(price),
+                                        takeProfitOnFill = take_profit_details,
+                                        triggerCondition = trigger_condition,
+                                        **stop_loss_order)
+        return response
+    
 
     def _modify_trade(self, order):
         """Modifies the take profit and/or stop loss of an existing trade.
@@ -605,8 +624,8 @@ class Broker:
             self._check_response(response)
         
         
-    def _get_stop_loss_details(self, order: Order) -> dict:
-        """Constructs stop loss details dictionary.
+    def _get_stop_loss_order(self, order: Order) -> dict:
+        """Constructs stop loss order dictionary.
         """
         self._check_connection()
         if order.stop_type is not None:
@@ -614,14 +633,41 @@ class Broker:
             
             if order.stop_type == 'trailing':
                 # Trailing stop loss order
-                stop_loss_details = {"price": str(price),
-                                     "type": "TRAILING_STOP_LOSS"}
+                SL_type = "trailingStopLossOnFill"
+                
+                # Calculate stop loss distance
+                if order.stop_distance is None:
+                    # Calculate stop distance from stop loss price provided
+                    if order._working_price is not None:
+                        working_price = order._working_price
+                    else:
+                        if order.order_type == 'market':
+                            # Get current market price
+                            last = self._get_price(order.instrument)
+                            working_price = last.closeoutBid if order.direction < 0 else last.closeoutAsk
+                        elif order.order_type in ['limit', 'stop-limit']:
+                            working_price = order.order_limit_price
+                    distance = abs(working_price - order.stop_loss)
+                    
+                else:
+                    # Calculate distance using provided pip distance
+                    pip_value = 10**self.get_pip_location(order.instrument)
+                    distance = abs(order.stop_distance * pip_value)
+                
+                # Construct stop loss order details
+                distance = self._check_precision(order.instrument, distance)
+                SL_details = {"distance": str(distance),
+                              "type": "TRAILING_STOP_LOSS"}
             else:
-                stop_loss_details = {"price": str(price)}
+                SL_type = "stopLossOnFill"
+                SL_details = {"price": str(price)}
+            
+            stop_loss_order = {SL_type: SL_details}
+            
         else:
-            stop_loss_details = None
-        
-        return stop_loss_details
+            stop_loss_order = {}
+            
+        return stop_loss_order
     
     
     def _get_take_profit_details(self, order: Order) -> dict:
@@ -732,4 +778,9 @@ class Broker:
         return response.body['positionBook']
     
     
-    
+    def _get_price(self, instrument: str):
+        """Returns the current price of the instrument.
+        """
+        response = self.api.pricing.get(accountID = self.ACCOUNT_ID, 
+                                        instruments = instrument)
+        return response.body["prices"][0]
