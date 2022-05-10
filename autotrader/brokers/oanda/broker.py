@@ -140,25 +140,26 @@ class Broker:
         for trade in oanda_open_trades:
             new_trade = {}
             related_orders = []
-            new_trade['order_ID']           = trade.id
-            new_trade['order_stop_price']   = trade.price
-            new_trade['order_limit_price']  = trade.price
-            new_trade['direction']          = np.sign(trade.currentUnits)
-            new_trade['order_time']         = trade.openTime
-            new_trade['instrument']         = trade.instrument
-            new_trade['size']               = abs(trade.currentUnits)
-            new_trade['order_price']        = trade.price
-            new_trade['entry_price']        = trade.price
+            new_trade['instrument'] = trade.instrument
+            new_trade['time_filled'] = trade.openTime
+            new_trade['fill_price'] = trade.price
+            new_trade['size'] = abs(trade.currentUnits)
+            new_trade['id'] = trade.id
+            new_trade['direction'] = np.sign(trade.currentUnits)
+            new_trade['margin_required'] = trade.marginUsed
+            new_trade['unrealised_PL'] = trade.unrealizedPL
+            new_trade['fees'] = trade.financing
+            new_trade['status'] = trade.state.lower()
             
             # Check for take profit
             if trade.takeProfitOrder is not None:
-                new_trade['take_profit']    = trade.takeProfitOrder.price
+                new_trade['take_profit'] = trade.takeProfitOrder.price
                 related_orders.append(trade.takeProfitOrder.id)
             
             # Check for stop loss
             if trade.stopLossOrder is not None:
-                new_trade['stop_loss']    = trade.stopLossOrder.price
-                new_trade['stop_type']    = 'limit'
+                new_trade['stop_loss'] = trade.stopLossOrder.price
+                new_trade['stop_type'] = 'limit'
                 related_orders.append(trade.stopLossOrder.id)
             
             if related_orders is not None:
@@ -174,6 +175,7 @@ class Broker:
     
     def get_trade_details(self, trade_ID: int):
         """Returns the details of the trade specified by trade_ID.
+        WARNING: THIS METHOD HAS BEEN MADE REDUNDANT BY 'get_trades' METHOD.
         """
         
         response = self.api.trade.list(accountID=self.ACCOUNT_ID, ids=int(trade_ID))
@@ -454,15 +456,6 @@ class Broker:
         return response.body['instruments'][0].pipLocation
     
     
-    def get_trade_unit_precision(self, instrument: str):
-        """Returns the trade unit precision for the requested instrument.
-        """
-        # TODO - implement checking using this method
-        response = self.api.account.instruments(self.ACCOUNT_ID, 
-                                                instruments=instrument)
-        return response.body['instruments'][0].tradeUnitsPrecision
-    
-    
     def _check_connection(self) -> None:
         """Connects to Oanda v20 REST API. An initial call is performed to check
         for a timeout error.
@@ -541,14 +534,14 @@ class Broker:
         # Check and correct order stop price
         price = self._check_precision(order.instrument, 
                                       order.order_stop_price)
-        
         trigger_condition = order.trigger_price
+        size = self.check_trade_size(order.instrument, order.size)
         
         # Need to test cases when no stop/take is provided (as None type)
         # TODO - support other order types (see link above, market is default)
         response = self.api.order.market_if_touched(accountID = self.ACCOUNT_ID,
                                                     instrument = order.instrument,
-                                                    units = order.direction * order.size,
+                                                    units = order.direction * size,
                                                     price = str(price),
                                                     takeProfitOnFill = take_profit_details,
                                                     triggerCondition = trigger_condition,
@@ -569,10 +562,11 @@ class Broker:
                                       order.order_limit_price)
         
         trigger_condition = order.trigger_price
+        size = self.check_trade_size(order.instrument, order.size)
         
         response = self.api.order.limit(accountID = self.ACCOUNT_ID,
                                         instrument = order.instrument,
-                                        units = order.direction * order.size,
+                                        units = order.direction * size,
                                         price = str(price),
                                         takeProfitOnFill = take_profit_details,
                                         triggerCondition = trigger_condition,
