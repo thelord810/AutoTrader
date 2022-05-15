@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="autotrader",
-    version="0.6.4",
+    version="0.6.5",
     author="Kieran Mackle",
     author_email="kemackle98@gmail.com",
     license="gpl-3.0",
@@ -16,7 +16,7 @@ setuptools.setup(
     project_urls={
         "Bug Tracker": "https://github.com/kieran-mackle/AutoTrader/issues",
         "Source Code": "https://github.com/kieran-mackle/AutoTrader",
-        "Documentation": "https://py-autotrader.readthedocs.io/en/latest/",
+        "Documentation": "https://autotrader.readthedocs.io/en/latest/",
     },
     classifiers=[
         "Programming Language :: Python :: 3",
