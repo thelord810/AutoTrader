@@ -139,10 +139,11 @@ class GetData:
 
         df = pd.DataFrame(hdata['Success'])
         df_simplified = df[['datetime', 'open', 'high', 'low', 'close', 'volume', 'open_interest', 'count']]
+        # Convert datetime column
+        df_simplified['datetime'] = pd.to_datetime(df['datetime'], format='%Y-%m-%d %H:%M:%S', utc=True)
         df_simplified.set_index('datetime', inplace=True)
         df_simplified.rename(columns={'open': 'Open', 'low': 'Low', 'close': 'Close', 'high': 'High'}, inplace=True)
-        # Convert datetime column
-        df_simplified['datetime'] = pd.to_datetime(df['datetime'], format='%Y-%m-%d %H:%M:%S')
+
         # Convert all columns to float
         df_simplified['Open'] = df_simplified['Open'].astype(float)
         df_simplified['Low'] = df_simplified['Low'].astype(float)

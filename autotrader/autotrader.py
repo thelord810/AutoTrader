@@ -842,8 +842,8 @@ class AutoTrader:
             backtest_results = self.backtest_results
             
         backtest_summary = backtest_results.summary()
-        start_date = backtest_summary['start'].strftime("%b %d %Y %H:%M:%S")
-        end_date = backtest_summary['end'].strftime("%b %d %Y %H:%M:%S")
+        start_date = backtest_summary['start']
+        end_date = backtest_summary['end']
         
         starting_balance = backtest_summary['starting_balance']
         ending_balance = backtest_summary['ending_balance']
