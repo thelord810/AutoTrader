@@ -1018,7 +1018,7 @@ class AutoTrader:
                 global_config = None
         
         # Check feed
-        if global_config is None and self._feed.lower() in ['oanda']:
+        if global_config is None and self._feed.lower() in ['icici']:
             raise Exception(f'Data feed "{self._feed}" requires global '+ \
                             'configuration. If a config file already '+ \
                             'exists, make sure to specify the home_dir.')
