@@ -869,20 +869,20 @@ class AutoTrader:
         print("----------------------------------------------")
         print("Start date:              {}".format(start_date))
         print("End date:                {}".format(end_date))
-        print("Starting balance:        ${}".format(round(starting_balance, 2)))
-        print("Ending balance:          ${}".format(round(ending_balance, 2)))
-        print("Ending NAV:              ${}".format(round(ending_NAV, 2)))
-        print("Total return:            ${} ({}%)".format(round(abs_return, 2), 
+        print("Starting balance:        ₹{}".format(round(starting_balance, 2)))
+        print("Ending balance:          ₹{}".format(round(ending_balance, 2)))
+        print("Ending NAV:              ₹{}".format(round(ending_NAV, 2)))
+        print("Total return:            ₹{} ({}%)".format(round(abs_return, 2),
                                           round(pc_return, 1)))
         if no_trades > 0:
             print("Total no. trades:        {}".format(no_trades))
-            print("Total fees:              ${}".format(round(total_fees, 3)))
+            print("Total fees:              ₹{}".format(round(total_fees, 3)))
             print("Backtest win rate:       {}%".format(round(win_rate, 1)))
             print("Maximum drawdown:        {}%".format(round(max_drawdown*100, 2)))
-            print("Max win:                 ${}".format(round(max_win, 2)))
-            print("Average win:             ${}".format(round(avg_win, 2)))
-            print("Max loss:                -${}".format(round(max_loss, 2)))
-            print("Average loss:            -${}".format(round(avg_loss, 2)))
+            print("Max win:                 ₹{}".format(round(max_win, 2)))
+            print("Average win:             ₹{}".format(round(avg_win, 2)))
+            print("Max loss:                -₹{}".format(round(max_loss, 2)))
+            print("Average loss:            -₹{}".format(round(avg_loss, 2)))
             print("Longest win streak:      {} trades".format(longest_win_streak))
             print("Longest losing streak:   {} trades".format(longest_lose_streak))
             print("Average trade duration:  {}".format(backtest_summary['all_trades']['avg_trade_duration']))
@@ -911,10 +911,10 @@ class AutoTrader:
             
             print("Number of long trades:   {}".format(no_long))
             print("Long win rate:           {}%".format(round(long_wr, 1)))
-            print("Max win:                 ${}".format(round(max_long_win, 2)))
-            print("Average win:             ${}".format(round(avg_long_win, 2)))
-            print("Max loss:                -${}".format(round(max_long_loss, 2)))
-            print("Average loss:            -${}".format(round(avg_long_loss, 2)))
+            print("Max win:                 ₹{}".format(round(max_long_win, 2)))
+            print("Average win:             ₹{}".format(round(avg_long_win, 2)))
+            print("Max loss:                -₹{}".format(round(max_long_loss, 2)))
+            print("Average loss:            -₹{}".format(round(avg_long_loss, 2)))
         else:
             print("There were no long trades.")
           
@@ -931,10 +931,10 @@ class AutoTrader:
             
             print("Number of short trades:  {}".format(no_short))
             print("short win rate:          {}%".format(round(short_wr, 1)))
-            print("Max win:                 ${}".format(round(max_short_win, 2)))
-            print("Average win:             ${}".format(round(avg_short_win, 2)))
-            print("Max loss:                -${}".format(round(max_short_loss, 2)))
-            print("Average loss:            -${}".format(round(avg_short_loss, 2)))
+            print("Max win:                 ₹{}".format(round(max_short_win, 2)))
+            print("Average win:             ₹{}".format(round(avg_short_win, 2)))
+            print("Max loss:                -₹{}".format(round(max_short_loss, 2)))
+            print("Average loss:            -₹{}".format(round(avg_short_loss, 2)))
             
         else:
             print("There were no short trades.")
