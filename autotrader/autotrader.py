@@ -4,6 +4,7 @@ import time
 import timeit
 import pyfiglet
 import importlib
+import traceback
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -1055,13 +1056,17 @@ class AutoTrader:
             portfolio = config['PORTFOLIO'] if 'PORTFOLIO' in config else False
             watchlist = ["Portfolio"] if portfolio else config['WATCHLIST']
             for instrument in watchlist:
-                # TODO - local data dict for portfolio
-                data_dict = self._local_data[instrument] \
-                    if self._local_data is not None else None
-                quote_data_path = self._local_quote_data[instrument] \
-                    if self._local_quote_data is not None else None
-                auxdata = self._auxdata[instrument] \
-                    if self._auxdata is not None else None
+                if portfolio:
+                    data_dict = self._local_data
+                    quote_data_path = self._local_quote_data
+                    auxdata = self._auxdata
+                else:
+                    data_dict = self._local_data[instrument] \
+                        if self._local_data is not None else None
+                    quote_data_path = self._local_quote_data[instrument] \
+                        if self._local_quote_data is not None else None
+                    auxdata = self._auxdata[instrument] \
+                        if self._auxdata is not None else None
                 
                 strategy_class = config['CLASS']
                 strategy_dict = {'config': config,
@@ -1080,6 +1085,7 @@ class AutoTrader:
         # Begin trading
         if self._run_mode.lower() == 'continuous':
             # Running in continuous update mode
+            # TODO - skip initial data collection period
             if self._backtest_mode:
                 # Backtesting
                 end_time = self._data_end # datetime
@@ -1111,6 +1117,7 @@ class AutoTrader:
                             if int(self._verbosity) > 0:
                                 print("Error: failed to update bot running" +\
                                       f"{bot._strategy_name} ({bot.instrument})")
+                                traceback.print_exc()
                             
                     # Go to sleep until next update
                     time.sleep(self._timestep.seconds - ((time.time() - \
