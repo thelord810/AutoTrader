@@ -8,6 +8,7 @@ from typing import Union
 from autotrader.brokers.trading import Order
 from datetime import datetime, timedelta, timezone
 from autotrader.brokers.ib.utils import Utils as IB_Utils
+from autotrader_custom_repo.AutoTrader.autotrader.brokers import kotak
 
 
 class GetData:
@@ -81,6 +82,9 @@ class GetData:
                 stoken = r.json()
                 self.iciciapi = BreezeConnect(api_key=appKey)
                 self.iciciapi.generate_session(api_secret=apiSecret, session_token=stoken)
+
+            elif broker_config['data_source'] == 'KOTAK':
+                kotak_config = kotak.broker()
 
         self.allow_dancing_bears = allow_dancing_bears
         self.home_currency = home_currency

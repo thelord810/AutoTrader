@@ -1,21 +1,22 @@
 import random
-import breeze_connect
+import ks_api_client
 import numpy as np
 import requests
 from autotrader.brokers.trading import Order, Trade, Position
 from autotrader.brokers.ib.utils import Utils
+from ks_api_client import ks_api
 
 
 class Broker:
-    """AutoTrader-InteractiveBrokers API interface.
+    """AutoTrader-Kotak API interface.
     
     Attributes
     ----------
     utils : Utils
         The broker utilities.
-    icici : Icici Session object
+    kotak : Kotak Session object
     account : str
-        The active Icici account.
+        The active Kotak account.
     
     Notes
     -----
@@ -35,26 +36,31 @@ class Broker:
         Parameters
         ----------
         config : dict
-            The IB configuration dictionary. This can contain the host, port, 
+            The Kotak configuration dictionary. This can contain the host, port,
             clientID and read_only boolean flag.
         utils : Utils, optional
             Broker utilities class instance. The default is None.
         """
         self.utils = utils if utils is not None else Utils()
         
-        self.host = config['host'] if 'host' in config else '127.0.0.1'
-        self.port = config['port'] if 'port' in config else 7497
-        self.client_id = config['clientID'] if 'clientID' in config else random.randint(0, 9999)
-        self.read_only = config['read_only'] if 'read_only' in config else False
-        self.account = config['account'] if 'account' in config else ''
+        self.ip = config['ip'] if 'ip' in config else '127.0.0.1'
+        self.access_token = config['accessToken'] if 'accessToken' in config else "1e277781-1a4d-347f-a13f-27e60d42c7e4"
+        self.userid = config['userId'] if 'userId' in config else "SP06121983"
+        self.password = config['password']
+        self.consumer_key = config['consumerKey'] if 'consumerKey' in config else "3d18B56W_bX4_VJzbD4mXQA4b_wa"
+        self.app_id = config['appId'] if 'appId' in config else "1baeba65-8908-4d22-8ad6-ef34ad280961"
 
-        appKey = broker_config['appKey']
-        apiSecret = broker_config['apiSecret']
+        client = ks_api.KSTradeApi(access_token=self.access_token, userid=self.userid, consumer_key=self.consumer_key, ip=self.ip, app_id=self.app_id)
 
-        r = requests.get(url=f"https://icicisession.herokuapp.com/token?appkey={appKey}")
-        stoken = r.json()
-        self.iciciapi = BreezeConnect(api_key=appKey)
-        self.icici.generate_session(api_secret=apiSecret, session_token=stoken)
+        # Get session for user
+        try:
+            client.login(password=self.password)
+        except Exception as e:
+            print("Exception when calling SessionApi->login: %s\n" % e)
+
+        session = client.session_2fa()
+        print(session)
+        sessionToken = client.one_time_token
         
         
     def __repr__(self):
