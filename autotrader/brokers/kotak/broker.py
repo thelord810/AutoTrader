@@ -2,8 +2,8 @@ import random
 import ks_api_client
 import numpy as np
 import requests
-from autotrader.brokers.trading import Order, Trade, Position
-from autotrader.brokers.ib.utils import Utils
+from autotrader_custom_repo.AutoTrader.autotrader.brokers.trading import Order, Trade, Position
+from autotrader_custom_repo.AutoTrader.autotrader.brokers.kotak.utils import Utils
 from ks_api_client import ks_api
 
 
@@ -43,24 +43,7 @@ class Broker:
         """
         self.utils = utils if utils is not None else Utils()
         
-        self.ip = config['ip'] if 'ip' in config else '127.0.0.1'
-        self.access_token = config['accessToken'] if 'accessToken' in config else "1e277781-1a4d-347f-a13f-27e60d42c7e4"
-        self.userid = config['userId'] if 'userId' in config else "SP06121983"
-        self.password = config['password']
-        self.consumer_key = config['consumerKey'] if 'consumerKey' in config else "3d18B56W_bX4_VJzbD4mXQA4b_wa"
-        self.app_id = config['appId'] if 'appId' in config else "1baeba65-8908-4d22-8ad6-ef34ad280961"
-
-        client = ks_api.KSTradeApi(access_token=self.access_token, userid=self.userid, consumer_key=self.consumer_key, ip=self.ip, app_id=self.app_id)
-
-        # Get session for user
-        try:
-            client.login(password=self.password)
-        except Exception as e:
-            print("Exception when calling SessionApi->login: %s\n" % e)
-
-        session = client.session_2fa()
-        print(session)
-        sessionToken = client.one_time_token
+        print("Initiated Kotak Interface for trading.")
         
         
     def __repr__(self):
@@ -135,43 +118,43 @@ class Broker:
         """
         self._check_connection()
         
-        # Get all open trades
-        open_trades = self.ib.openTrades()
-        
-        pending_orders = {}
-        for trade in open_trades:
-            trade_dict = trade.dict()
-            contract = trade_dict['contract']
-            order_dict = trade_dict['order'].dict()
-            order_status_dict = trade_dict['orderStatus'].dict()
-            order_status = order_status_dict['status']
-            
-            if order_status in ib_insync.OrderStatus.ActiveStates:
-                # Order is still active (not yet filled)
-                new_order = {}
-                new_order['order_ID']           = order_dict['orderId']
-                new_order['order_type']         = order_dict['orderType']
-                new_order['order_stop_price']   = order_dict['auxPrice']
-                new_order['order_limit_price']  = order_dict['lmtPrice']
-                new_order['direction']          = 1 if order_dict['action'] == 'BUY' else -1
-                new_order['order_time']         = None
-                new_order['instrument']         = contract.symbol
-                new_order['size']               = order_dict['totalQuantity']
-                new_order['order_price']        = None
-                new_order['take_profit']        = None
-                new_order['take_distance']      = None
-                new_order['stop_type']          = None
-                new_order['stop_distance']      = None
-                new_order['stop_loss']          = None
-                new_order['related_orders']     = None
-                new_order['granularity']        = None
-                new_order['strategy']           = None
-                
-                if instrument is not None and contract.symbol == instrument:
-                    pending_orders[new_order['order_ID']] = Order._from_dict(new_order)
-                elif instrument is None:
-                    pending_orders[new_order['order_ID']] = Order._from_dict(new_order)
-            
+        # # Get all open trades
+        # open_trades = self.kotak.openTrades()
+        #
+        # pending_orders = {}
+        # for trade in open_trades:
+        #     trade_dict = trade.dict()
+        #     contract = trade_dict['contract']
+        #     order_dict = trade_dict['order'].dict()
+        #     order_status_dict = trade_dict['orderStatus'].dict()
+        #     order_status = order_status_dict['status']
+        #
+        #     if order_status in kotak.OrderStatus.ActiveStates:
+        #         # Order is still active (not yet filled)
+        #         new_order = {}
+        #         new_order['order_ID']           = order_dict['orderId']
+        #         new_order['order_type']         = order_dict['orderType']
+        #         new_order['order_stop_price']   = order_dict['auxPrice']
+        #         new_order['order_limit_price']  = order_dict['lmtPrice']
+        #         new_order['direction']          = 1 if order_dict['action'] == 'BUY' else -1
+        #         new_order['order_time']         = None
+        #         new_order['instrument']         = contract.symbol
+        #         new_order['size']               = order_dict['totalQuantity']
+        #         new_order['order_price']        = None
+        #         new_order['take_profit']        = None
+        #         new_order['take_distance']      = None
+        #         new_order['stop_type']          = None
+        #         new_order['stop_distance']      = None
+        #         new_order['stop_loss']          = None
+        #         new_order['related_orders']     = None
+        #         new_order['granularity']        = None
+        #         new_order['strategy']           = None
+        #
+        #         if instrument is not None and contract.symbol == instrument:
+        #             pending_orders[new_order['order_ID']] = Order._from_dict(new_order)
+        #         elif instrument is None:
+        #             pending_orders[new_order['order_ID']] = Order._from_dict(new_order)
+        pending_orders = None
         return pending_orders
     
     
@@ -189,16 +172,16 @@ class Broker:
             A list of the cancelled trades.
 
         """
-        self._check_connection()
-        
-        open_trades = self.ib.openTrades()
-        cancelled_trades = []
-        for trade in open_trades:
-            order = trade.order
-            if order.orderId == order_id:
-                cancel_trade = self.ib.cancelOrder(order)
-                cancelled_trades.append(cancel_trade)
-        
+        # self._check_connection()
+        #
+        # open_trades = self.ib.openTrades()
+        # cancelled_trades = []
+        # for trade in open_trades:
+        #     order = trade.order
+        #     if order.orderId == order_id:
+        #         cancel_trade = self.ib.cancelOrder(order)
+        #         cancelled_trades.append(cancel_trade)
+        cancelled_trades = None
         return cancelled_trades
     
     
@@ -215,46 +198,47 @@ class Broker:
         dict
             The open trades.
         """
-        self._check_connection()
-        
-        # Get all open trades
-        all_open_trades = self.ib.openTrades()
-        
-        open_trades = {}
-        for trade in all_open_trades:
-            trade_dict = trade.dict()
-            contract = trade_dict['contract']
-            order_dict = trade_dict['order'].dict()
-            order_status_dict = trade_dict['orderStatus'].dict()
-            order_status = order_status_dict['status']
-            
-            if order_status == 'Filled':
-                # Trade order has been filled
-                new_trade = {}
-                new_trade['order_ID']           = order_dict['orderId']
-                new_trade['order_stop_price']   = order_dict['auxPrice']
-                new_trade['order_limit_price']  = order_dict['lmtPrice']
-                new_trade['direction']          = 1 if order_dict['action'] == 'BUY' else -1
-                new_trade['order_time']         = None
-                new_trade['instrument']         = contract.symbol
-                new_trade['size']               = order_dict['totalQuantity']
-                new_trade['order_price']        = None
-                new_trade['entry_price']        = order_status_dict['lastFillPrice']
-                new_trade['order_type']         = None
-                new_trade['take_profit']        = None
-                new_trade['take_distance']      = None
-                new_trade['stop_type']          = None
-                new_trade['stop_distance']      = None
-                new_trade['stop_loss']          = None
-                new_trade['related_orders']     = None
-                new_trade['granularity']        = None
-                new_trade['strategy']           = None
-                
-                if instrument is not None and contract.symbol == instrument:
-                    open_trades[new_trade['order_ID']] = Trade(new_trade)
-                elif instrument is None:
-                    open_trades[new_trade['order_ID']] = Trade(new_trade)
-        
+        # self._check_connection()
+        #
+        # # Get all open trades
+        # all_open_trades = self.ib.openTrades()
+        #
+        # open_trades = {}
+        # for trade in all_open_trades:
+        #     trade_dict = trade.dict()
+        #     contract = trade_dict['contract']
+        #     order_dict = trade_dict['order'].dict()
+        #     order_status_dict = trade_dict['orderStatus'].dict()
+        #     order_status = order_status_dict['status']
+        #
+        #     if order_status == 'Filled':
+        #         # Trade order has been filled
+        #         new_trade = {}
+        #         new_trade['order_ID']           = order_dict['orderId']
+        #         new_trade['order_stop_price']   = order_dict['auxPrice']
+        #         new_trade['order_limit_price']  = order_dict['lmtPrice']
+        #         new_trade['direction']          = 1 if order_dict['action'] == 'BUY' else -1
+        #         new_trade['order_time']         = None
+        #         new_trade['instrument']         = contract.symbol
+        #         new_trade['size']               = order_dict['totalQuantity']
+        #         new_trade['order_price']        = None
+        #         new_trade['entry_price']        = order_status_dict['lastFillPrice']
+        #         new_trade['order_type']         = None
+        #         new_trade['take_profit']        = None
+        #         new_trade['take_distance']      = None
+        #         new_trade['stop_type']          = None
+        #         new_trade['stop_distance']      = None
+        #         new_trade['stop_loss']          = None
+        #         new_trade['related_orders']     = None
+        #         new_trade['granularity']        = None
+        #         new_trade['strategy']           = None
+        #
+        #         if instrument is not None and contract.symbol == instrument:
+        #             open_trades[new_trade['order_ID']] = Trade(new_trade)
+        #         elif instrument is None:
+        #             open_trades[new_trade['order_ID']] = Trade(new_trade)
+        open_trades = None
+
         return open_trades
     
     
@@ -382,44 +366,53 @@ class Broker:
     def _connect(self):
         """Connects from IB application.
         """
-        self.ib.connect(host=self.host, port=self.port, clientId=self.client_id, 
-                        readonly=self.read_only, account=self.account)
+        # self.ib.connect(host=self.host, port=self.port, clientId=self.client_id,
+        #                 readonly=self.read_only, account=self.account)
+        # self._check_connection()
+        # self.ib.reqHistoricalData()
+        raise NotImplementedError("This method is not available.")
 
     
     def _disconnect(self):
         """Disconnects from IB application.
         """
-        self.ib.disconnect()
+        # self._check_connection()
+        # self.ib.reqHistoricalData()
+        raise NotImplementedError("This method is not available.")
         
 
     def _check_connection(self):
         """Checks if there is an active connection to IB. If not, will 
         attempt to reconnect.
         """
-        self._refresh()
-        connected = self.ib.isConnected()
-        
-        while not connected:
-            try:
-                # Try to connect
-                self.ib = ib_insync.IB()
-                self._connect()
-            except:
-                print("Connection to IB failed... trying to reconnect.")
-                # Connection failed, increment client ID
-                self.client_id = random.randint(0, 9999)
-                
-                # Sleep for a little while
-                self.ib.sleep(10)
-            
-            # Update connection status
-            connected = self.ib.isConnected()
+        # self._refresh()
+        # connected = self.ib.isConnected()
+        #
+        # while not connected:
+        #     try:
+        #         # Try to connect
+        #         self.ib = ib_insync.IB()
+        #         self._connect()
+        #     except:
+        #         print("Connection to IB failed... trying to reconnect.")
+        #         # Connection failed, increment client ID
+        #         self.client_id = random.randint(0, 9999)
+        #
+        #         # Sleep for a little while
+        #         self.ib.sleep(10)
+        #
+        #     # Update connection status
+        #     connected = self.ib.isConnected()
+        # self._check_connection()
+        # self.ib.reqHistoricalData()
+        raise NotImplementedError("This method is not available.")
         
     
     def _refresh(self):
         """Refreshes IB session events.
         """
-        self.ib.sleep(0)
+        #self.ib.sleep(0)
+        print("TBA")
     
     
     def _get_account(self,):
@@ -430,131 +423,131 @@ class Broker:
         return accounts[0]
     
     
-    def _close_position(self, order: Order, **kwargs):
-        """Closes open position of symbol by placing opposing market order.
-        
-        Warning
-        -------
-        If the order instrument is for an underlying product, all contracts 
-        held attributed to the underlying will be closed.
-        """
-        self._check_connection()
-        
-        symbol = order.localSymbol if order.localSymbol is not None else order.instrument
-        positions = self.get_positions(instrument=symbol)
-        position = positions[symbol]
-        
-        for item in position.portfolio_items:
-            # Place opposing market order
-            item_units = item.position
-            action = 'BUY' if item_units < 0 else 'SELL'
-            units = abs(item_units)
-            IB_order = ib_insync.MarketOrder(action, units)
-            contract = item.contract
-            self.ib.qualifyContracts(contract)
-            self.ib.placeOrder(contract, IB_order)
-        
-    
-    def _place_market_order(self, order: Order):
-        """Places a market order.
-        """
-        self._check_connection()
-        
-        # Build contract
-        contract = self.utils.build_contract(order)
-        
-        # Create market order
-        action = 'BUY' if order.direction > 0 else 'SELL'
-        units = abs(order.size)
-        market_order = ib_insync.MarketOrder(action, units, 
-                                             orderId=self.ib.client.getReqId(),
-                                             transmit=False)
-        
-        # Attach SL and TP orders
-        orders = self._attach_auxiliary_orders(order, market_order)
-        
-        # Submit orders
-        self._process_orders(contract, orders)
+    # def _close_position(self, order: Order, **kwargs):
+    #     """Closes open position of symbol by placing opposing market order.
+    #
+    #     Warning
+    #     -------
+    #     If the order instrument is for an underlying product, all contracts
+    #     held attributed to the underlying will be closed.
+    #     """
+    #     self._check_connection()
+    #
+    #     symbol = order.localSymbol if order.localSymbol is not None else order.instrument
+    #     positions = self.get_positions(instrument=symbol)
+    #     position = positions[symbol]
+    #
+    #     for item in position.portfolio_items:
+    #         # Place opposing market order
+    #         item_units = item.position
+    #         action = 'BUY' if item_units < 0 else 'SELL'
+    #         units = abs(item_units)
+    #         IB_order = ib_insync.MarketOrder(action, units)
+    #         contract = item.contract
+    #         self.ib.qualifyContracts(contract)
+    #         self.ib.placeOrder(contract, IB_order)
         
     
-    def _place_stop_limit_order(self, order):
-        """Places stop-limit order.
-        """
-        self._check_connection()
+    # def _place_market_order(self, order: Order):
+    #     """Places a market order.
+    #     """
+    #     self._check_connection()
+    #
+    #     # Build contract
+    #     contract = self.utils.build_contract(order)
+    #
+    #     # Create market order
+    #     action = 'BUY' if order.direction > 0 else 'SELL'
+    #     units = abs(order.size)
+    #     market_order = ib_insync.MarketOrder(action, units,
+    #                                          orderId=self.ib.client.getReqId(),
+    #                                          transmit=False)
+    #
+    #     # Attach SL and TP orders
+    #     orders = self._attach_auxiliary_orders(order, market_order)
+    #
+    #     # Submit orders
+    #     self._process_orders(contract, orders)
         
-        # Build contract
-        contract = self.utils.build_contract(order)
-        
-        # Create stop limit order
-        action = 'BUY' if order.direction > 0 else 'SELL'
-        units = abs(order.size)
-        lmtPrice = order.order_limit_price
-        stopPrice = order.order_stop_price
-        IBorder = ib_insync.StopLimitOrder(action, units, lmtPrice, stopPrice, 
-                                         orderId=self.ib.client.getReqId(),
-                                         transmit=False)
-        
-        # Attach SL and TP orders
-        orders = self._attach_auxiliary_orders(order, IBorder)
-        
-        # Submit orders
-        self._process_orders(contract, orders)
+    
+    # def _place_stop_limit_order(self, order):
+    #     """Places stop-limit order.
+    #     """
+    #     self._check_connection()
+    #
+    #     # Build contract
+    #     contract = self.utils.build_contract(order)
+    #
+    #     # Create stop limit order
+    #     action = 'BUY' if order.direction > 0 else 'SELL'
+    #     units = abs(order.size)
+    #     lmtPrice = order.order_limit_price
+    #     stopPrice = order.order_stop_price
+    #     IBorder = ib_insync.StopLimitOrder(action, units, lmtPrice, stopPrice,
+    #                                      orderId=self.ib.client.getReqId(),
+    #                                      transmit=False)
+    #
+    #     # Attach SL and TP orders
+    #     orders = self._attach_auxiliary_orders(order, IBorder)
+    #
+    #     # Submit orders
+    #     self._process_orders(contract, orders)
+    #
+    #
+    # def _place_limit_order(self, order):
+    #     """Places limit order.
+    #     """
+    #     self._check_connection()
+    #
+    #     # Build contract
+    #     contract = self.utils.build_contract(order)
+    #
+    #     action = 'BUY' if order.direction > 0 else 'SELL'
+    #     units = abs(order.size)
+    #     lmtPrice = order.order_limit_price
+    #     IBorder = ib_insync.LimitOrder(action, units, lmtPrice,
+    #                                  orderId=self.ib.client.getReqId(),
+    #                                  transmit=False)
+    #
+    #     # Attach SL and TP orders
+    #     orders = self._attach_auxiliary_orders(order, IBorder)
+    #
+    #     # Submit orders
+    #     self._process_orders(contract, orders)
     
     
-    def _place_limit_order(self, order):
-        """Places limit order.
-        """
-        self._check_connection()
-        
-        # Build contract
-        contract = self.utils.build_contract(order)
-        
-        action = 'BUY' if order.direction > 0 else 'SELL'
-        units = abs(order.size)
-        lmtPrice = order.order_limit_price
-        IBorder = ib_insync.LimitOrder(action, units, lmtPrice, 
-                                     orderId=self.ib.client.getReqId(),
-                                     transmit=False)
-        
-        # Attach SL and TP orders
-        orders = self._attach_auxiliary_orders(order, IBorder)
-        
-        # Submit orders
-        self._process_orders(contract, orders)
+    # def _attach_auxiliary_orders(self, order: Order,
+    #                              parent_order: ib_insync.order) -> list:
+    #     orders = [parent_order]
+    #
+    #     # TP order
+    #     if order.take_profit is not None:
+    #         takeProfit_order = self._create_take_profit_order(order,
+    #                                                           parent_order.orderId)
+    #         orders.append(takeProfit_order)
+    #
+    #     # SL order
+    #     if order.stop_loss is not None:
+    #         stopLoss_order = self._create_stop_loss_order(order,
+    #                                                       parent_order.orderId)
+    #         orders.append(stopLoss_order)
+    #
+    #     return orders
     
     
-    def _attach_auxiliary_orders(self, order: Order, 
-                                 parent_order: ib_insync.order) -> list:
-        orders = [parent_order]
-        
-        # TP order
-        if order.take_profit is not None:
-            takeProfit_order = self._create_take_profit_order(order, 
-                                                              parent_order.orderId)
-            orders.append(takeProfit_order)
-        
-        # SL order
-        if order.stop_loss is not None:
-            stopLoss_order = self._create_stop_loss_order(order,
-                                                          parent_order.orderId)
-            orders.append(stopLoss_order)
-        
-        return orders
-    
-    
-    def _process_orders(self, contract: ib_insync.Contract, orders: list) -> None:
-        """Processes a list of orders for a given contract.
-        """
-        self._check_connection()
-        
-        # Submit orders
-        for i, order in enumerate(orders):
-            if i == len(orders)-1:
-                # Final order; set transmit to True
-                order.transmit = True
-            else:
-                order.transmit = False
-            self.ib.placeOrder(contract, order)
+    # def _process_orders(self, contract: ib_insync.Contract, orders: list) -> None:
+    #     """Processes a list of orders for a given contract.
+    #     """
+    #     self._check_connection()
+    #
+    #     # Submit orders
+    #     for i, order in enumerate(orders):
+    #         if i == len(orders)-1:
+    #             # Final order; set transmit to True
+    #             order.transmit = True
+    #         else:
+    #             order.transmit = False
+    #         self.ib.placeOrder(contract, order)
     
     
     def _convert_to_oca(self, orders: list, oca_group: str = None, 
@@ -571,27 +564,29 @@ class Broker:
         oca_orders : list
             The orders modified to be in a OCA group.
         """
-        self._check_connection()
-        
-        if oca_group is None:
-            oca_group = f'OCA_{self.ib.client.getReqId()}'
-        
-        oca_orders = self.ib.oneCancelsAll(orders, oca_group, oca_type)
+        # self._check_connection()
+        #
+        # if oca_group is None:
+        #     oca_group = f'OCA_{self.ib.client.getReqId()}'
+        #
+        # oca_orders = self.ib.oneCancelsAll(orders, oca_group, oca_type)
+        oca_orders = None
         return oca_orders
     
     
     def _create_take_profit_order(self, order: Order, parentId: int):
         """Constructs a take profit order.
         """
-        quantity = order.size
-        takeProfitPrice = order.take_profit
-        action = 'BUY' if order.direction < 0 else 'SELL'
-        takeProfit_order = ib_insync.LimitOrder(action, 
-                                                quantity, 
-                                                takeProfitPrice,
-                                                orderId=self.ib.client.getReqId(),
-                                                transmit=False,
-                                                parentId=parentId)
+        # quantity = order.size
+        # takeProfitPrice = order.take_profit
+        # action = 'BUY' if order.direction < 0 else 'SELL'
+        # takeProfit_order = ib_insync.LimitOrder(action,
+        #                                         quantity,
+        #                                         takeProfitPrice,
+        #                                         orderId=self.ib.client.getReqId(),
+        #                                         transmit=False,
+        #                                         parentId=parentId)
+        takeProfit_order = None
         return takeProfit_order
     
     
@@ -599,14 +594,16 @@ class Broker:
         """Constructs a stop loss order.
         """
         # TODO - add support for trailing SL
-        quantity = order.size
-        stopLossPrice = order.stop_loss
-        action = 'BUY' if order.direction < 0 else 'SELL'
-        stopLoss_order = ib_insync.StopOrder(action, 
-                                             quantity, 
-                                             stopLossPrice,
-                                             orderId=self.ib.client.getReqId(),
-                                             transmit=True,
-                                             parentId=parentId)
+        # quantity = order.size
+        # stopLossPrice = order.stop_loss
+        # action = 'BUY' if order.direction < 0 else 'SELL'
+        # stopLoss_order = ib_insync.StopOrder(action,
+        #                                      quantity,
+        #                                      stopLossPrice,
+        #                                      orderId=self.ib.client.getReqId(),
+        #                                      transmit=True,
+        #                                      parentId=parentId)
+        stopLoss_order = None
+
         return stopLoss_order
     

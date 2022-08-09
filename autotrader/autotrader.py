@@ -10,10 +10,10 @@ import pandas as pd
 from tqdm import tqdm
 from ast import literal_eval
 from scipy.optimize import brute
-from autotrader.autoplot import AutoPlot
-from autotrader.autobot import AutoTraderBot
+from autotrader_custom_repo.AutoTrader.autotrader.autoplot import AutoPlot
+from autotrader_custom_repo.AutoTrader.autotrader.autobot import AutoTraderBot
 from datetime import datetime, timezone
-from autotrader.utilities import (read_yaml, get_config, 
+from autotrader_custom_repo.AutoTrader.autotrader.utilities import (read_yaml, get_config,
                                   get_watchlist, DataStream, BacktestResults)
 
 
@@ -1254,8 +1254,8 @@ class AutoTrader:
         """Configures and assigns appropriate broker for trading.
         """
         # Import relevant broker and utilities modules
-        broker_module = importlib.import_module(f'autotrader.brokers.{self._broker_name}.broker')
-        utils_module = importlib.import_module(f'autotrader.brokers.{self._broker_name}.utils')
+        broker_module = importlib.import_module(f'autotrader_custom_repo.AutoTrader.autotrader.brokers.{self._broker_name}.broker')
+        utils_module = importlib.import_module(f'autotrader_custom_repo.AutoTrader.autotrader.brokers.{self._broker_name}.utils')
         
         # Create broker and utils instances
         utils = utils_module.Utils()

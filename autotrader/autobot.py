@@ -1,11 +1,11 @@
 import os
 import importlib
 import pandas as pd
-from autotrader.comms import emailing
+from autotrader_custom_repo.AutoTrader.autotrader.comms import emailing
 from datetime import datetime, timezone
-from autotrader.autodata import GetData
-from autotrader.brokers.trading import Order
-from autotrader.utilities import read_yaml, get_config, BacktestResults
+from autotrader_custom_repo.AutoTrader.autotrader.autodata import GetData
+from autotrader_custom_repo.AutoTrader.autotrader.brokers.trading import Order
+from autotrader_custom_repo.AutoTrader.autotrader.utilities import read_yaml, get_config, BacktestResults
 
 
 class AutoTraderBot:

@@ -89,6 +89,64 @@ class GetData:
         self.allow_dancing_bears = allow_dancing_bears
         self.home_currency = home_currency
 
+    def common(self, instrument: str, granularity: str, count: int,
+              start_time: datetime = None, end_time: datetime = None,
+              order: Order = None, durationStr: str = '10 mins', **kwargs) -> pd.DataFrame:
+        """
+
+        Parameters
+        ----------
+        instrument : str
+            The instrument to fetch data for..
+        granularity : str
+            The candlestick granularity (eg. "1min", "1day")..
+        count : int
+            DESCRIPTION.
+        start_time : datetime, optional
+            DESCRIPTION. The default is None.
+        end_time : datetime, optional
+            DESCRIPTION. The default is None.
+        order : Order, optional
+            DESCRIPTION. The default is None.
+        **kwargs : TYPE
+            DESCRIPTION.
+
+        Raises
+        ------
+        NotImplementedError
+            DESCRIPTION.
+
+        Returns
+        -------
+        df : TYPE
+            DESCRIPTION.
+
+        Warnings
+        --------
+        This method is not recommended due to its high API poll rate.
+
+        References
+        ----------
+        https://ib-insync.readthedocs.io/api.html?highlight=reqhistoricaldata#
+        """
+
+        # contract = IB_Utils.build_contract(order)
+        api_url = "http://127.0.0.1:8000/data/historical"
+        instrument_info = {
+                            "instrument": instrument,
+                            "interval": granularity,
+                            "from_time": kwargs['start_date'],
+                            "to_time": kwargs['end_date'],
+                            "exchange": kwargs['exchange'],
+                            "product": kwargs['product'],
+                            "expiry": kwargs['expiry'],
+                            "strike": kwargs['strike'],
+                            "right": kwargs['option_type']
+                           }
+        response = requests.post(api_url, json=instrument_info)
+        print(response)
+        #return df_simplified
+
     def icici(self, instrument: str, granularity: str, count: int,
               start_time: datetime = None, end_time: datetime = None,
               order: Order = None, durationStr: str = '10 mins', **kwargs) -> pd.DataFrame:
