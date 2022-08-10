@@ -156,7 +156,8 @@ class AutoTraderBot:
                              "data_end": self._data_end,
                              "instrument": self.instrument,
                              "feed": self._feed,
-                             "portfolio": portfolio}
+                             "portfolio": portfolio,
+                             "live_mode": autotrader_instance.livetrading}
         self.Stream = self._data_stream_object(**stream_attributes)
         
         # Initial data call
@@ -385,7 +386,7 @@ class AutoTraderBot:
 
         """
         
-        timestamp = datetime.now(timezone.utc) if timestamp is None else timestamp
+        timestamp = datetime.now() if timestamp is None else timestamp
         
         # Fetch new data
         data, multi_data, quote_data, auxdata = self.Stream.refresh(timestamp=timestamp)

@@ -540,6 +540,7 @@ class DataStream:
         self.data_start = None
         self.data_end = None
         self.portfolio = None
+        self.live_mode = None
 
         # Unpack kwargs
         for item in kwargs:
@@ -593,7 +594,10 @@ class DataStream:
         else:
             # Download data
             multi_data = {}
-            data_func = getattr(self.get_data, self.feed.lower())
+            if(self.live_mode):
+                data_func = getattr(self.get_data, f"{self.feed.lower()}_liveprice")
+            else:
+                data_func = getattr(self.get_data, self.feed.lower())
             if self.portfolio:
                 # Portfolio strategy
                 if len(self.portfolio) > 1:

@@ -1046,6 +1046,7 @@ class AutoTrader:
                                                                   "%H:%M:%S")))
             else:
                 print("AutoTrader Livetrade")
+                self.livetrading = 1
                 print("--------------------")
                 print("Current time: {}".format(datetime.now().strftime("%A, %B %d %Y, "+
                                                                   "%H:%M:%S")))

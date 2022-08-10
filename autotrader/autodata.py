@@ -162,78 +162,6 @@ class GetData:
 
         return df_simplified
 
-    def icici(self, instrument: str, granularity: str, count: int,
-              start_time: datetime = None, end_time: datetime = None,
-              order: Order = None, durationStr: str = '10 mins', **kwargs) -> pd.DataFrame:
-        """
-
-        Parameters
-        ----------
-        instrument : str
-            The instrument to fetch data for..
-        granularity : str
-            The candlestick granularity (eg. "1min", "1day")..
-        count : int
-            DESCRIPTION.
-        start_time : datetime, optional
-            DESCRIPTION. The default is None.
-        end_time : datetime, optional
-            DESCRIPTION. The default is None.
-        order : Order, optional
-            DESCRIPTION. The default is None.
-        **kwargs : TYPE
-            DESCRIPTION.
-
-        Raises
-        ------
-        NotImplementedError
-            DESCRIPTION.
-
-        Returns
-        -------
-        df : TYPE
-            DESCRIPTION.
-
-        Warnings
-        --------
-        This method is not recommended due to its high API poll rate.
-
-        References
-        ----------
-        https://ib-insync.readthedocs.io/api.html?highlight=reqhistoricaldata#
-        """
-
-        # contract = IB_Utils.build_contract(order)
-        hdata = self.iciciapi.get_historical_data(interval=granularity,
-                                                  from_date=kwargs['start_date'],
-                                                  to_date=kwargs['end_date'],
-                                                  stock_code=instrument,
-                                                  exchange_code=kwargs['exchange'],
-                                                  product_type=kwargs['product'],
-                                                  expiry_date=kwargs['expiry'],
-                                                  right=kwargs['option_type'],
-                                                  strike_price=kwargs['strike'])
-
-        df = pd.DataFrame(hdata['Success'])
-        df_simplified = df[['datetime', 'open', 'high', 'low', 'close', 'volume', 'open_interest', 'count']]
-        # Convert datetime column
-        df_simplified['datetime'] = pd.to_datetime(df['datetime'], format='%Y-%m-%d %H:%M:%S', utc=True)
-        df_simplified.set_index('datetime', inplace=True)
-        df_simplified.rename(columns={'open': 'Open', 'low': 'Low', 'close': 'Close', 'high': 'High'}, inplace=True)
-
-        # Convert all columns to float
-        df_simplified['Open'] = df_simplified['Open'].astype(float)
-        df_simplified['Low'] = df_simplified['Low'].astype(float)
-        df_simplified['Close'] = df_simplified['Close'].astype(float)
-        df_simplified['High'] = df_simplified['High'].astype(float)
-        return df_simplified
-
-    def _icici_quote_data(self, data: pd.DataFrame, pair: str, granularity: str,
-                          start_time: datetime, end_time: datetime):
-        """Function to retrieve price conversion data.
-        """
-
-        return data
 
     def _common_quote_data(self, data: pd.DataFrame, pair: str, granularity: str,
                           start_time: datetime, end_time: datetime):
@@ -241,6 +169,14 @@ class GetData:
         """
 
         return data
+
+    def common_liveprice(self, order: Order, **kwargs) -> dict:
+        """Returns live feed for Instrument provided
+        """
+        api_url = f"http://127.0.0.1:8000/feed/live/1324"
+        response = requests.get(api_url)
+
+        return response
 
     def oanda(self, instrument: str, granularity: str, count: int = None,
               start_time: datetime = None, end_time: datetime = None) -> pd.DataFrame:
