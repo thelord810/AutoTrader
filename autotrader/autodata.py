@@ -1,3 +1,5 @@
+import json
+
 import v20
 import ib_insync
 import pandas as pd
@@ -144,8 +146,21 @@ class GetData:
                             "right": kwargs['option_type']
                            }
         response = requests.post(api_url, json=instrument_info)
-        print(response)
-        #return df_simplified
+        json_response = json.loads(response.content)
+        df = pd.DataFrame(json_response['Success'])
+        df_simplified = df[['datetime', 'open', 'high', 'low', 'close', 'volume', 'open_interest', 'count']]
+        # Convert datetime column
+        df_simplified['datetime'] = pd.to_datetime(df['datetime'], format='%Y-%m-%d %H:%M:%S', utc=True)
+        df_simplified.set_index('datetime', inplace=True)
+        df_simplified.rename(columns={'open': 'Open', 'low': 'Low', 'close': 'Close', 'high': 'High'}, inplace=True)
+
+        # Convert all columns to float
+        df_simplified['Open'] = df_simplified['Open'].astype(float)
+        df_simplified['Low'] = df_simplified['Low'].astype(float)
+        df_simplified['Close'] = df_simplified['Close'].astype(float)
+        df_simplified['High'] = df_simplified['High'].astype(float)
+
+        return df_simplified
 
     def icici(self, instrument: str, granularity: str, count: int,
               start_time: datetime = None, end_time: datetime = None,
@@ -214,6 +229,13 @@ class GetData:
         return df_simplified
 
     def _icici_quote_data(self, data: pd.DataFrame, pair: str, granularity: str,
+                          start_time: datetime, end_time: datetime):
+        """Function to retrieve price conversion data.
+        """
+
+        return data
+
+    def _common_quote_data(self, data: pd.DataFrame, pair: str, granularity: str,
                           start_time: datetime, end_time: datetime):
         """Function to retrieve price conversion data.
         """

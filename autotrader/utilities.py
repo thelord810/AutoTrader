@@ -615,7 +615,7 @@ class DataStream:
                 granularities = self.strategy_params['granularity'].split(',')
                 data_key = granularities[0]
                 for granularity in granularities:
-                    if self.feed.lower() == "icici":
+                    if self.feed.lower() == "common":
                         extra_attributes = {"exchange": self.strategy_params['exchange'],
                                             "product": self.strategy_params['product'],
                                             "expiry": self.strategy_params['expiry'],
@@ -679,7 +679,7 @@ class DataStream:
 
             else:
                 # Single instrument strategy - quote data for base granularity
-                if self.feed.lower() == "icici":
+                if self.feed.lower() == "common":
                     quote_data = data
                 else:
                     quote_data = quote_data_func(data, self.instrument,
