@@ -144,7 +144,7 @@ class AutoTraderBot:
         
         # Fetch data
         self._get_data = GetData(broker_config, self._allow_dancing_bears,
-                                 self._base_currency)
+                                 self._base_currency, self.instrument, self._strategy_params)
         
         # Create instance of data stream object
         stream_attributes = {"data_filepaths": self._data_filepaths,

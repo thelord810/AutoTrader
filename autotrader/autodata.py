@@ -36,7 +36,7 @@ class GetData:
 
     def __init__(self, broker_config: dict = None,
                  allow_dancing_bears: bool = False,
-                 home_currency: str = None) -> None:
+                 home_currency: str = None, instrument: str = None, strategy_parameters = None) -> None:
         """Instantiates GetData.
 
         Parameters
@@ -65,28 +65,18 @@ class GetData:
                 self.api = v20.Context(hostname=API, token=ACCESS_TOKEN, port=port)
                 self.ACCOUNT_ID = broker_config["ACCOUNT_ID"]
 
-            elif broker_config['data_source'] == 'IB':
-                host = broker_config['host']
-                port = broker_config['port']
-                client_id = broker_config['clientID'] + 1
-                read_only = broker_config['read_only']
-                account = broker_config['account']
-
-                self.ibapi = ib_insync.IB()
-                self.ibapi.connect(host=host, port=port, clientId=client_id,
-                                   readonly=read_only, account=account)
-
-            elif broker_config['data_source'] == 'ICICI':
-                appKey = broker_config['appKey']
-                apiSecret = broker_config['apiSecret']
-
-                r = requests.get(url=f"https://icicisession.herokuapp.com/token?appkey={appKey}")
-                stoken = r.json()
-                self.iciciapi = BreezeConnect(api_key=appKey)
-                self.iciciapi.generate_session(api_secret=apiSecret, session_token=stoken)
-
-            elif broker_config['data_source'] == 'KOTAK':
-                kotak_config = kotak.broker()
+            elif broker_config['data_source'] == 'local':
+                api_url = "http://127.0.0.1:8000/tokens/icici"
+                instrument_info = {
+                    "instrument": instrument,
+                    "exchange": strategy_parameters['exchange'],
+                    "product": strategy_parameters['product'],
+                    "expiry": strategy_parameters['expiry'],
+                    "strike": strategy_parameters['strike'],
+                    "right": strategy_parameters['option_type']
+                }
+                response = requests.post(api_url, json=instrument_info)
+                json_response = json.loads(response.content)
 
         self.allow_dancing_bears = allow_dancing_bears
         self.home_currency = home_currency
@@ -173,9 +163,9 @@ class GetData:
     def common_liveprice(self, order: Order, **kwargs) -> dict:
         """Returns live feed for Instrument provided
         """
-        api_url = f"http://127.0.0.1:8000/feed/live/1324"
+        api_url = f"http://127.0.0.1:8000/feed/live/82222"
         response = requests.get(api_url)
-
+        print(response)
         return response
 
     def oanda(self, instrument: str, granularity: str, count: int = None,
