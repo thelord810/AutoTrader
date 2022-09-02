@@ -84,8 +84,22 @@ class AutoData:
             )
             self._spread = data_config["spread"] if "spread" in data_config else 0
 
+        def configure_common_feed(data_config):
+            """Configures the attributes for a common data feed."""
+            self._feed = "common"
+            self.api = None
+            self._data_directory = (
+                data_config["data_dir"] if "data_dir" in data_config else None
+            )
+            self._spread_units = (
+                data_config["spread_units"]
+                if "spread_units" in data_config
+                else "percentage"
+            )
+            self._spread = data_config["spread"] if "spread" in data_config else 0
+
         if not data_config:
-            configure_local_feed({})
+            configure_common_feed({})
         else:
             self._feed = data_config["data_source"].lower()
 
@@ -190,6 +204,9 @@ class AutoData:
 
             elif data_config["data_source"].lower() == "local":
                 configure_local_feed(data_config)
+
+            elif data_config["data_source"].lower() == "common":
+                configure_common_feed(data_config)
 
             elif data_config["data_source"].lower() == "none":
                 # No data feed required

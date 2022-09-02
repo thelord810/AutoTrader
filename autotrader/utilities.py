@@ -119,6 +119,38 @@ def get_broker_config(
                 if "custom_account_id" not in global_config
                 else global_config["custom_account_id"]
             )
+        elif broker.lower() == "kotak":
+            config = {
+                "host": global_config["host"]
+                if "host" in global_config
+                else "127.0.0.1",
+                "port": global_config["port"] if "port" in global_config else 7497,
+                "clientID": global_config["clientID"]
+                if "clientID" in global_config
+                else 1,
+                "account": global_config["account"]
+                if "account" in global_config
+                else "",
+                "read_only": global_config["read_only"]
+                if "read_only" in global_config
+                else False,
+            }
+        elif broker.lower() == "icici":
+            config = {
+                "host": global_config["host"]
+                if "host" in global_config
+                else "127.0.0.1",
+                "port": global_config["port"] if "port" in global_config else 7497,
+                "clientID": global_config["clientID"]
+                if "clientID" in global_config
+                else 1,
+                "account": global_config["account"]
+                if "account" in global_config
+                else "",
+                "read_only": global_config["read_only"]
+                if "read_only" in global_config
+                else False,
+            }
 
         elif broker.lower() == "ib":
             config = {

@@ -167,6 +167,10 @@ class AutoTrader:
         self._use_strat_plot_data = False
         self._plot_portolio_chart = False
 
+        #Set Live mode parameter
+        if (self._backtest_mode is False and self._scan_mode is False):
+            self._live_mode = True
+
     def __repr__(self):
         return f"AutoTrader instance"
 
@@ -1056,10 +1060,10 @@ class AutoTrader:
                     )
 
                 # Check broker
-                supported_exchanges = ["virtual", "oanda", "ib", "ccxt", "dydx", "icici", "kotak"]
+                supported_brokers = ["virtual", "oanda", "ib", "ccxt", "dydx", "icici", "kotak"]
                 inputted_brokers = self._broker_name.lower().replace(" ", "").split(",")
                 for broker in inputted_brokers:
-                    if broker.split(":")[0] not in supported_exchanges:
+                    if broker.split(":")[0] not in supported_brokers:
                         raise Exception(
                             f"Unsupported broker requested: {self._broker_name}\n"
                             + "Please check the broker(s) specified in configure method and "
@@ -1629,10 +1633,10 @@ class AutoTrader:
 
             # Import relevant modules
             broker_module = importlib.import_module(
-                f"autotrader.brokers.{broker_name}.broker"
+                f"autotrader_custom_repo.AutoTrader.autotrader.brokers.{broker_name}.broker"
             )
             utils_module = importlib.import_module(
-                f"autotrader.brokers.{utils_name}.utils"
+                f"autotrader_custom_repo.AutoTrader.autotrader.brokers.{utils_name}.utils"
             )
 
             # Create broker and utils instances
