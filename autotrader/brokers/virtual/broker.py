@@ -6,10 +6,10 @@ import pandas as pd
 from decimal import Decimal
 from typing import Callable
 from datetime import date, datetime
-from autotrader.autodata import AutoData
-from autotrader.utilities import get_data_config
-from autotrader.brokers.broker_utils import BrokerUtils
-from autotrader.brokers.trading import Order, IsolatedPosition, Position, Trade
+from autotrader_custom_repo.AutoTrader.autotrader.autodata import AutoData
+from autotrader_custom_repo.AutoTrader.autotrader.utilities import get_data_config
+from autotrader_custom_repo.AutoTrader.autotrader.brokers.broker_utils import BrokerUtils
+from autotrader_custom_repo.AutoTrader.autotrader.brokers.trading import Order, IsolatedPosition, Position, Trade
 
 
 class Broker:

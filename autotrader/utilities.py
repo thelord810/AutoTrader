@@ -82,7 +82,7 @@ def get_broker_config(
         else:
             broker_key = broker
 
-        supported_brokers = ["oanda", "ib", "ccxt", "dydx", "virtual"]
+        supported_brokers = ["oanda", "ib", "ccxt", "dydx", "virtual", "icici", "kotak"]
         if broker.lower() not in supported_brokers:
             raise Exception(f"Unsupported broker: '{broker}'")
 
