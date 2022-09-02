@@ -1,11 +1,13 @@
 import os
 import importlib
 import pandas as pd
-from autotrader.comms import emailing
+from autotrader_custom_repo.AutoTrader.autotrader.comms import emailing
 from datetime import datetime, timezone
-from autotrader.autodata import AutoData
-from autotrader.brokers.trading import Order
-from autotrader.utilities import read_yaml, get_data_config, TradeAnalysis
+
+from autotrader_custom_repo.AutoTrader.autotrader.autodata import GetData
+from autotrader_custom_repo.AutoTrader.autotrader.brokers.trading import Order
+from autotrader_custom_repo.AutoTrader.autotrader.utilities import read_yaml, get_config, BacktestResults, TradeAnalysis
+
 
 
 class AutoTraderBot:
@@ -211,6 +213,7 @@ class AutoTraderBot:
             "portfolio": portfolio,
             "data_path_mapper": self._data_path_mapper,
         }
+
         self.Stream = self._data_stream_object(**stream_attributes)
 
         # Initial data call
@@ -474,8 +477,9 @@ class AutoTraderBot:
 
         """
 
-        timestamp = datetime.now(timezone.utc) if timestamp is None else timestamp
-
+        
+        timestamp = datetime.now() if timestamp is None else timestamp
+        
         # Fetch new data
         data, multi_data, quote_data, auxdata = self.Stream.refresh(timestamp=timestamp)
 

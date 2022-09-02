@@ -2,12 +2,22 @@ from distutils.command.config import config
 import os
 import time
 import pandas as pd
+import json
+
+import v20
+import ib_insync
+import yfinance as yf
+import requests
+from breeze_connect import BreezeConnect
 from typing import Union
 from decimal import Decimal
-from autotrader.brokers.trading import Order
+from autotrader_custom_repo.AutoTrader.autotrader.brokers.trading import Order
 from datetime import datetime, timedelta, timezone
-from autotrader.brokers.broker_utils import OrderBook
+from autotrader_custom_repo.AutoTrader.autotrader.brokers.broker_utils import OrderBook
 import sys
+from autotrader.brokers.ib.utils import Utils as IB_Utils
+from autotrader_custom_repo.AutoTrader.autotrader.brokers import kotak
+from autotrader_custom_repo.AutoTrader.autotrader import kakfaConsumer
 
 
 class AutoData:
@@ -19,6 +29,7 @@ class AutoData:
         the home currency of the account (used for retrieving quote data)
 
     _allow_dancing_bears : bool
+
         Allow incomplete candlesticks in data retrieval.
 
     """
@@ -38,6 +49,7 @@ class AutoData:
             The configuration dictionary for the data source to be used. This
             is created automatically in autotrader.utilities.get_data_config.
             The default is None.
+
         allow_dancing_bears : bool, optional
             A flag to allow incomplete bars to be returned in the data. The
             default is False.
@@ -51,6 +63,7 @@ class AutoData:
         None
             AutoData will be instantiated and ready to fetch price data.
         """
+
         # Merge kwargs and data_config
         if data_config is None and kwargs is not None:
             data_config = {}
@@ -262,6 +275,121 @@ class AutoData:
         start_time: datetime = None,
         end_time: datetime = None,
     ) -> pd.DataFrame:
+
+        if broker_config is not None:
+            if broker_config['data_source'] == 'OANDA':
+                API = broker_config["API"]
+                ACCESS_TOKEN = broker_config["ACCESS_TOKEN"]
+                port = broker_config["PORT"]
+                self.api = v20.Context(hostname=API, token=ACCESS_TOKEN, port=port)
+                self.ACCOUNT_ID = broker_config["ACCOUNT_ID"]
+
+            elif broker_config['data_source'] == 'local':
+                api_url = "http://127.0.0.1:8000/tokens/icici"
+                instrument_info = {
+                    "instrument": instrument,
+                    "exchange": strategy_parameters['exchange'],
+                    "product": strategy_parameters['product'],
+                    "expiry": strategy_parameters['expiry'],
+                    "strike": strategy_parameters['strike'],
+                    "right": strategy_parameters['option_type']
+                }
+                response = requests.post(api_url, json=instrument_info)
+                json_response = json.loads(response.content)
+
+        self.allow_dancing_bears = allow_dancing_bears
+        self.home_currency = home_currency
+
+    def common(self, instrument: str, granularity: str, count: int,
+              start_time: datetime = None, end_time: datetime = None,
+              order: Order = None, durationStr: str = '10 mins', **kwargs) -> pd.DataFrame:
+        """
+
+        Parameters
+        ----------
+        instrument : str
+            The instrument to fetch data for..
+        granularity : str
+            The candlestick granularity (eg. "1min", "1day")..
+        count : int
+            DESCRIPTION.
+        start_time : datetime, optional
+            DESCRIPTION. The default is None.
+        end_time : datetime, optional
+            DESCRIPTION. The default is None.
+        order : Order, optional
+            DESCRIPTION. The default is None.
+        **kwargs : TYPE
+            DESCRIPTION.
+
+        Raises
+        ------
+        NotImplementedError
+            DESCRIPTION.
+
+        Returns
+        -------
+        df : TYPE
+            DESCRIPTION.
+
+        Warnings
+        --------
+        This method is not recommended due to its high API poll rate.
+
+        References
+        ----------
+        https://ib-insync.readthedocs.io/api.html?highlight=reqhistoricaldata#
+        """
+
+        # contract = IB_Utils.build_contract(order)
+        api_url = "http://127.0.0.1:8000/data/historical"
+        instrument_info = {
+                            "instrument": instrument,
+                            "interval": granularity,
+                            "from_time": kwargs['start_date'],
+                            "to_time": kwargs['end_date'],
+                            "exchange": kwargs['exchange'],
+                            "product": kwargs['product'],
+                            "expiry": kwargs['expiry'],
+                            "strike": kwargs['strike'],
+                            "right": kwargs['option_type']
+                           }
+        response = requests.post(api_url, json=instrument_info)
+        json_response = json.loads(response.content)
+        df = pd.DataFrame(json_response['Success'])
+        df_simplified = df[['datetime', 'open', 'high', 'low', 'close', 'volume', 'open_interest', 'count']]
+        # Convert datetime column
+        df_simplified['datetime'] = pd.to_datetime(df['datetime'], format='%Y-%m-%d %H:%M:%S', utc=True)
+        df_simplified.set_index('datetime', inplace=True)
+        df_simplified.rename(columns={'open': 'Open', 'low': 'Low', 'close': 'Close', 'high': 'High'}, inplace=True)
+
+        # Convert all columns to float
+        df_simplified['Open'] = df_simplified['Open'].astype(float)
+        df_simplified['Low'] = df_simplified['Low'].astype(float)
+        df_simplified['Close'] = df_simplified['Close'].astype(float)
+        df_simplified['High'] = df_simplified['High'].astype(float)
+
+        return df_simplified
+
+
+    def _common_quote_data(self, data: pd.DataFrame, pair: str, granularity: str,
+                          start_time: datetime, end_time: datetime):
+        """Function to retrieve price conversion data.
+        """
+
+        return data
+
+    def common_liveprice(self, order: Order, **kwargs) -> dict:
+        """Returns live feed for Instrument provided
+        """
+        api_url = f"http://127.0.0.1:8000/feed/live/37517"
+        response = requests.get(api_url)
+        data = kakfaConsumer.confluent_consumer()
+        #print(next(data))
+        return next(data)
+
+    def oanda(self, instrument: str, granularity: str, count: int = None,
+              start_time: datetime = None, end_time: datetime = None) -> pd.DataFrame:
         """Retrieves historical price data of a instrument from Oanda v20 API.
 
         Parameters
@@ -289,6 +417,21 @@ class AutoData:
             time should be provided. If neither is provided, the N most
             recent candles will be provided. If both are provided, the count
             will be ignored, and instead the dates will be used.
+
+
+        Examples
+        --------
+        >>> data = GetData.oanda("EUR_USD", granularity="M15",
+                                 start_time=from_dt, end_time=to_dt)
+
+        >>> data = GetData.oanda("EUR_USD", granularity="M15",
+                                 start_time=from_dt, count=2110)
+
+        >>> data = GetData.oanda("EUR_USD", granularity="M15",
+                                 end_time=to_dt, count=2110)
+
+        >>> data = GetData.oanda("EUR_USD", granularity="M15",
+                                 count=2110)
         """
         gran_map = {
             5: "S5",
@@ -325,6 +468,7 @@ class AutoData:
                 )
                 data = self._response_to_df(response)
 
+
             elif start_time is not None and end_time is None:
                 # start_time + count
                 from_time = start_time.timestamp()
@@ -333,9 +477,11 @@ class AutoData:
                 )
                 data = self._response_to_df(response)
 
+
             elif end_time is not None and start_time is None:
                 # end_time + count
                 to_time = end_time.timestamp()
+
                 response = self.api.instrument.candles(
                     instrument, granularity=granularity, count=count, toTime=to_time
                 )
@@ -364,6 +510,7 @@ class AutoData:
                 else:
                     data = self._response_to_df(response)
 
+
         else:
             # count is None
             # Assume that both start_time and end_time have been specified.
@@ -375,6 +522,7 @@ class AutoData:
                 instrument, granularity=granularity, fromTime=from_time, toTime=to_time
             )
 
+
             # If the request is rejected, max candles likely exceeded
             if response.status != 200:
                 data = self._get_extended_oanda_data(
@@ -384,6 +532,7 @@ class AutoData:
                 data = self._response_to_df(response)
 
         return data
+
 
     def _oanda_liveprice(self, order: Order, **kwargs) -> dict:
         """Returns current price (bid+ask) and home conversion factors."""
@@ -425,6 +574,7 @@ class AutoData:
                 )
         return orderbook
 
+
     def _get_extended_oanda_data(self, instrument, granularity, from_time, to_time):
         """Returns historical data between a date range."""
         max_candles = 5000
@@ -439,6 +589,7 @@ class AutoData:
             count=max_candles,
         )
         data = self._response_to_df(response)
+
         last_time = data.index[-1].timestamp()
 
         while last_time < end_time:
@@ -452,6 +603,7 @@ class AutoData:
             )
 
             partial_data = self._response_to_df(response)
+
             data = pd.concat([data, partial_data])
             last_time = data.index[-1].timestamp()
 
@@ -549,6 +701,7 @@ class AutoData:
         if response.status != 200:
             print(response.reason)
 
+
     def _response_to_df(self, response):
         """Function to convert api response into a pandas dataframe."""
         try:
@@ -563,6 +716,7 @@ class AutoData:
         close_price, high_price, low_price, open_price, volume = [], [], [], [], []
 
         if self._allow_dancing_bears:
+
             # Allow all candles
             for candle in candles:
                 times.append(candle.time)
@@ -583,6 +737,7 @@ class AutoData:
                     open_price.append(float(candle.mid.o))
                     volume.append(float(candle.volume))
 
+
         dataframe = pd.DataFrame(
             {
                 "Open": open_price,
@@ -592,6 +747,7 @@ class AutoData:
                 "Volume": volume,
             }
         )
+
         dataframe.index = pd.to_datetime(times)
         dataframe.drop_duplicates(inplace=True)
 
@@ -642,12 +798,15 @@ class AutoData:
             my_int = conversions[letter] * number
 
         elif feed.lower() == "yahoo":
+
             # Note: will not work for week or month granularities
 
             letter = granularity[-1]
             number = float(granularity[:-1])
 
+
             conversions = {"m": 60, "h": 60 * 60, "d": 60 * 60 * 24}
+
 
             my_int = conversions[letter] * number
 
@@ -661,6 +820,7 @@ class AutoData:
         start_time: str = None,
         end_time: str = None,
     ) -> pd.DataFrame:
+
         """Retrieves historical price data from yahoo finance.
 
         Parameters
@@ -707,6 +867,7 @@ class AutoData:
         }
         granularity = gran_map[pd.Timedelta(granularity).total_seconds()]
 
+
         if count is not None and start_time is None and end_time is None:
             # Convert count to start and end dates (assumes end=now)
             end_time = datetime.now()
@@ -718,11 +879,13 @@ class AutoData:
             tickers=instrument, start=start_time, end=end_time, interval=granularity
         )
 
+
         if data.index.tzinfo is None:
             # Data is naive, add UTC timezone
             data.index = data.index.tz_localize(timezone.utc)
 
         return data
+
 
     def _yahoo_orderbook(self, *args, **kwargs):
         raise Exception("Orderbook data is not available from Yahoo Finance.")
@@ -736,6 +899,7 @@ class AutoData:
         to_date: datetime,
         count: int = None,
     ):
+
         """Returns nominal price data - quote conversion not supported for
         Yahoo finance API.
         """
@@ -761,6 +925,7 @@ class AutoData:
         **kwargs,
     ) -> pd.DataFrame:
         """Fetches data from IB.
+
 
         Parameters
         ----------
@@ -801,7 +966,9 @@ class AutoData:
         # TODO - implement
         contract = IB_Utils.build_contract(order)
 
+
         dt = ""
+
         barsList = []
         while True:
             bars = self.api.reqHistoricalData(
@@ -823,7 +990,9 @@ class AutoData:
         df = self.api.util.df(allBars)
         return df
 
+
     def _ib_liveprice(self, order: Order, snapshot: bool = False, **kwargs) -> dict:
+
         """Returns current price (bid+ask) and home conversion factors.
 
         Parameters
@@ -851,6 +1020,7 @@ class AutoData:
             "negativeHCF": 1,
             "positiveHCF": 1,
         }
+
         return price
 
     @staticmethod
@@ -908,6 +1078,7 @@ class AutoData:
         **kwargs,
     ) -> pd.DataFrame:
         """Reads and returns local price data.
+
 
         Parameters
         ----------

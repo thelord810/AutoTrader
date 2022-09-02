@@ -43,10 +43,12 @@ def write_yaml(data: dict, filepath: str) -> None:
         yaml.dump(data, outfile, default_flow_style=False)
 
 
+
 def get_broker_config(
     broker: str, global_config: dict = None, environment: str = "paper"
 ) -> dict:
     """Returns a broker configuration dictionary.
+
 
     Parameters
     ----------
@@ -233,7 +235,7 @@ def get_data_config(feed: str, global_config: dict = None, **kwargs) -> dict:
         feed, exchange = feed.lower().split(":")
 
     # Check feed
-    supported_feeds = ["oanda", "ib", "ccxt", "dydx", "yahoo", "local", "none"]
+    supported_feeds = ["oanda", "ib", "ccxt", "dydx", "yahoo", "local", "common", "none"]
     if feed.lower() not in supported_feeds:
         raise Exception(f"Unsupported data feed: '{feed}'")
 
@@ -330,6 +332,7 @@ def get_watchlist(index, feed):
         print("\nArgument for scan missing. Please specify instrument/index to scan.")
         print("Try $ ./AutoTrader.py -h s for more help.\n")
         sys.exit(0)
+
 
     if index == "all":
         """Returns all currency pairs."""
@@ -455,6 +458,7 @@ def get_watchlist(index, feed):
 def get_streaks(trade_summary):
     """Calculates longest winning and losing streaks from trade summary."""
     profit_list = trade_summary[trade_summary["status"] == "closed"].profit.values
+
     longest_winning_streak = 1
     longest_losing_streak = 1
     streak = 1
@@ -486,6 +490,7 @@ def unpickle_broker(picklefile: str = ".virtual_broker"):
 class TradeAnalysis:
     """AutoTrader trade analysis class.
 
+
     Attributes
     ----------
     instruments_traded : list
@@ -512,6 +517,7 @@ class TradeAnalysis:
         # Meta data
         self.brokers_used = None
         self.broker_results = None
+
         self.instruments_traded = None
 
         # Histories
@@ -710,6 +716,7 @@ class TradeAnalysis:
             position_history = pd.concat(
                 [position_history, results["position_history"]]
             )
+
 
         # Assign attributes
         self.brokers_used = brokers_used
@@ -1030,6 +1037,7 @@ class TradeAnalysis:
         no_short = len(short_positions)
         trade_results["short_positions"] = {}
         trade_results["short_positions"]["total"] = no_short
+
         if no_short > 0:
             short_wins = short_positions[short_positions.profit > 0]
             avg_short_win = np.mean(short_wins.profit)
@@ -1046,6 +1054,7 @@ class TradeAnalysis:
             trade_results["short_positions"]["short_wr"] = short_wr
 
         return trade_results
+
 
 
 class DataStream:
@@ -1087,6 +1096,7 @@ class DataStream:
         A callable to map an instrument to an absolute filepath of
         data for that instrument.
 
+
     Notes
     -----
     A 'dynamic' dataset is one where the specific products being traded
@@ -1119,6 +1129,8 @@ class DataStream:
         self.data_end = None
         self.portfolio = None
         self.data_path_mapper = None
+        self.live_mode = None
+
 
         # Unpack kwargs
         for item in kwargs:
@@ -1157,6 +1169,7 @@ class DataStream:
                 data = self.get_data._local(
                     self.data_filepaths, self.data_start, self.data_end
                 )
+
                 multi_data = None
 
             elif isinstance(self.data_filepaths, dict):
@@ -1206,13 +1219,18 @@ class DataStream:
         else:
             # Download data
             multi_data = {}
-            data_func = getattr(self.get_data, f"_{self.feed.lower()}")
+            if(self.live_mode):
+                data_func = getattr(self.get_data, f"{self.feed.lower()}_liveprice")
+            else:
+                data_func = getattr(self.get_data, self.feed.lower())
+
             if self.portfolio:
                 # Portfolio strategy
                 if len(self.portfolio) > 1:
                     granularity = self.strategy_params["granularity"]
                     data_key = self.portfolio[0]
                     for instrument in self.portfolio:
+
                         data = data_func(
                             instrument,
                             granularity=granularity,
@@ -1228,19 +1246,31 @@ class DataStream:
                         + "portfolio to False, or specify more "
                         + "instruments in the watchlist."
                     )
+
             else:
                 # Single instrument strategy
                 granularities = self.strategy_params["granularity"].split(",")
                 data_key = granularities[0]
                 for granularity in granularities:
-                    data = data_func(
-                        self.instrument,
-                        granularity=granularity,
-                        count=self.strategy_params["period"],
-                        start_time=self.data_start,
-                        end_time=self.data_end,
-                    )
-                    multi_data[granularity] = data
+                    if self.feed.lower() == "common":
+                        extra_attributes = {"exchange": self.strategy_params['exchange'],
+                                            "product": self.strategy_params['product'],
+                                            "expiry": self.strategy_params['expiry'],
+                                            "option_type": self.strategy_params['option_type'],
+                                            "strike": self.strategy_params['strike'],
+                                            "start_date": self.strategy_params['start_time'],
+                                            "end_date": self.strategy_params['end_time']
+                                            }
+
+                        multi_data[data_key] = data_func(self.instrument, granularity=granularity,
+                                                         count=self.strategy_params['period'],
+                                                         start_time=self.data_start,
+                                                         end_time=self.data_end, **extra_attributes)
+                    else:
+                        multi_data[data_key] = data_func(self.instrument, granularity=granularity,
+                                                         count=self.strategy_params['period'],
+                                                         start_time=self.data_start,
+                                                         end_time=self.data_end)
 
             # Take data as first element of multi-data
             data = multi_data[data_key]
@@ -1256,6 +1286,7 @@ class DataStream:
                     self.quote_data_file, self.data_start, self.data_end
                 )
 
+
             elif isinstance(quote_data, dict) and self.portfolio:
                 # Multiple quote datafiles provided
                 # TODO - support multiple quote data files (portfolio strategies)
@@ -1269,12 +1300,14 @@ class DataStream:
                         self.data_start,
                         self.data_end,
                     )
+
             else:
                 raise Exception("Error in quote data file provided.")
 
         else:
             # Download data
             quote_data_func = getattr(self.get_data, f"_{self.feed.lower()}_quote_data")
+
             if self.portfolio:
                 # Portfolio strategy - quote data for each instrument
                 granularity = self.strategy_params["granularity"]
@@ -1288,18 +1321,19 @@ class DataStream:
                         self.data_end,
                         count=self.strategy_params["period"],
                     )
+
                     quote_data[instrument] = quote_df
 
             else:
                 # Single instrument strategy - quote data for base granularity
-                quote_data = quote_data_func(
-                    data,
-                    self.instrument,
-                    self.strategy_params["granularity"].split(",")[0],
-                    self.data_start,
-                    self.data_end,
-                    count=self.strategy_params["period"],
-                )
+
+                if self.feed.lower() == "common":
+                    quote_data = data
+                else:
+                    quote_data = quote_data_func(data, self.instrument,
+                                                 self.strategy_params['granularity'].split(',')[0],
+                                                 self.data_start, self.data_end,
+                                                 count=self.strategy_params['period'])
 
         # Retrieve auxiliary data
         if self.auxdata_files is not None:
@@ -1308,6 +1342,7 @@ class DataStream:
                 auxdata = self.get_data._local(
                     self.auxdata_files, self.data_start, self.data_end
                 )
+
 
             elif isinstance(self.auxdata_files, dict):
                 # Multiple data filepaths provided
@@ -1385,6 +1420,7 @@ class DataStream:
         Returns
         -------
         dict
+
             A dictionary of OHLC bars, keyed by the product name.
 
         Notes
@@ -1399,6 +1435,7 @@ class DataStream:
             if "base" in processed_strategy_data
             else processed_strategy_data
         )
+
         if isinstance(strat_data, dict):
             for instrument, data in strat_data.items():
                 bars[instrument] = data.iloc[-1]
@@ -1431,3 +1468,4 @@ class TradeWatcher:
         latest_trades = self.latest_trades
         self.latest_trades = []
         return latest_trades
+

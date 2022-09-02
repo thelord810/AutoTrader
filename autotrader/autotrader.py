@@ -13,9 +13,7 @@ from threading import Thread
 from ast import literal_eval
 from scipy.optimize import brute
 from datetime import datetime, timezone
-from autotrader.autoplot import AutoPlot
-from autotrader.autobot import AutoTraderBot
-from autotrader.utilities import (
+from autotrader_custom_repo.AutoTrader.autotrader.utilities import (
     read_yaml,
     get_broker_config,
     get_watchlist,
@@ -23,6 +21,9 @@ from autotrader.utilities import (
     TradeAnalysis,
     unpickle_broker,
 )
+from autotrader_custom_repo.AutoTrader.autotrader.autoplot import AutoPlot
+from autotrader_custom_repo.AutoTrader.autotrader.autobot import AutoTraderBot
+
 
 
 class AutoTrader:
@@ -1237,11 +1238,11 @@ class AutoTrader:
             print("Start date:              {}".format(start_date))
             print("End date:                {}".format(end_date))
             print("Duration:                {}".format(duration))
-            print("Starting balance:        ${}".format(round(starting_balance, 2)))
-            print("Ending balance:          ${}".format(round(ending_balance, 2)))
-            print("Ending NAV:              ${}".format(round(ending_NAV, 2)))
+            print("Starting balance:        ₹{}".format(round(starting_balance, 2)))
+            print("Ending balance:          ₹{}".format(round(ending_balance, 2)))
+            print("Ending NAV:              ₹{}".format(round(ending_NAV, 2)))
             print(
-                "Total return:            ${} ({}%)".format(
+                "Total return:            ₹{} ({}%)".format(
                     round(abs_return, 2), round(pc_return, 1)
                 )
             )
@@ -1250,12 +1251,12 @@ class AutoTrader:
                 print("Total no. trades:        {}".format(no_trades))
                 print("No. long trades:         {}".format(no_long_trades))
                 print("No. short trades:        {}".format(no_short_trades))
-                print("Total fees paid:         ${}".format(round(total_fees, 3)))
+                print("Total fees paid:         ₹{}".format(round(total_fees, 3)))
                 print("Win rate:                {}%".format(round(win_rate, 1)))
-                print("Max win:                 ${}".format(round(max_win, 2)))
-                print("Average win:             ${}".format(round(avg_win, 2)))
-                print("Max loss:                -${}".format(round(max_loss, 2)))
-                print("Average loss:            -${}".format(round(avg_loss, 2)))
+                print("Max win:                 ₹{}".format(round(max_win, 2)))
+                print("Average win:             ₹{}".format(round(avg_win, 2)))
+                print("Max loss:                -₹{}".format(round(max_loss, 2)))
+                print("Average loss:            -₹{}".format(round(avg_loss, 2)))
                 print(
                     "Longest winning streak:  {} positions".format(longest_win_streak)
                 )
@@ -1292,10 +1293,10 @@ class AutoTrader:
 
                 print("No. long positions:      {}".format(no_long))
                 print("Win rate:                {}%".format(round(long_wr, 1)))
-                print("Max win:                 ${}".format(round(max_long_win, 2)))
-                print("Average win:             ${}".format(round(avg_long_win, 2)))
-                print("Max loss:                -${}".format(round(max_long_loss, 2)))
-                print("Average loss:            -${}".format(round(avg_long_loss, 2)))
+                print("Max win:                 ₹{}".format(round(max_long_win, 2)))
+                print("Average win:             ₹{}".format(round(avg_long_win, 2)))
+                print("Max loss:                -₹{}".format(round(max_long_loss, 2)))
+                print("Average loss:            -₹{}".format(round(avg_long_loss, 2)))
             else:
                 print("There were no long positions.")
 
@@ -1312,10 +1313,10 @@ class AutoTrader:
 
                 print("No. short positions:     {}".format(no_short))
                 print("Win rate:                {}%".format(round(short_wr, 1)))
-                print("Max win:                 ${}".format(round(max_short_win, 2)))
-                print("Average win:             ${}".format(round(avg_short_win, 2)))
-                print("Max loss:                -${}".format(round(max_short_loss, 2)))
-                print("Average loss:            -${}".format(round(avg_short_loss, 2)))
+                print("Max win:                 ₹{}".format(round(max_short_win, 2)))
+                print("Average win:             ₹{}".format(round(avg_short_win, 2)))
+                print("Max loss:                -₹{}".format(round(max_short_loss, 2)))
+                print("Average loss:            -₹{}".format(round(avg_short_loss, 2)))
 
             else:
                 print("There were no short positions.")
@@ -1365,7 +1366,6 @@ class AutoTrader:
 
                 print("\n Instrument Breakdown:")
                 print(results.to_string(index=False))
-
         else:
             print("No updates to report.")
 
@@ -1518,6 +1518,7 @@ class AutoTrader:
                 else:
                     trade_mode = "auto" if len(self._bots_deployed) > 0 else "manual"
                     extra_str = f"{trade_mode} trade in {self._environment} environment"
+                    self.livetrading = 1
                     print(f"LIVETRADE MODE ({extra_str})")
                 print(
                     "Current time: {}".format(
@@ -1672,6 +1673,7 @@ class AutoTrader:
 
         self._broker = brokers
         self._broker_utils = brokers_utils
+
 
     def _configure_emailing(self, global_config: dict) -> None:
         """Configure email settings."""

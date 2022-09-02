@@ -64,7 +64,7 @@ more than enough to build a profitable trading system.
 ## Installation
 AutoTrader can be installed using pip:
 ```
-pip install autotrader
+pip install git+https://github.com/thelord810/AutoTrader.git
 ```
 ### Updating
 AutoTrader can be updated by appending the `--upgrade` flag to the install command:

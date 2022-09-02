@@ -67,6 +67,7 @@ setuptools.setup(
         "ccxt": ["ccxt"],
         "oanda": [
             "v20 >= 3.0.25.0",
+        "breeze_connect"
         ],
         "ib": [
             "ib_insync >= 0.9.70",
