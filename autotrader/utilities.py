@@ -642,6 +642,7 @@ class DataStream:
             # Take data as first element of multi-data
             data = multi_data[data_key]
 
+
             if len(multi_data) == 1:
                 multi_data = None
 
@@ -725,7 +726,7 @@ class DataStream:
         """
         datasets = [data, quote_data]
         adjusted_datasets = []
-
+        print(datasets)
         for dataset in datasets:
             # Initialise common index
             common_index = dataset.index

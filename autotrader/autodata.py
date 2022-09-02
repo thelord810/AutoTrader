@@ -11,6 +11,7 @@ from autotrader.brokers.trading import Order
 from datetime import datetime, timedelta, timezone
 from autotrader.brokers.ib.utils import Utils as IB_Utils
 from autotrader_custom_repo.AutoTrader.autotrader.brokers import kotak
+from autotrader_custom_repo.AutoTrader.autotrader import kakfaConsumer
 
 
 class GetData:
@@ -163,10 +164,11 @@ class GetData:
     def common_liveprice(self, order: Order, **kwargs) -> dict:
         """Returns live feed for Instrument provided
         """
-        api_url = f"http://127.0.0.1:8000/feed/live/82222"
+        api_url = f"http://127.0.0.1:8000/feed/live/37517"
         response = requests.get(api_url)
-        print(response)
-        return response
+        data = kakfaConsumer.confluent_consumer()
+        #print(next(data))
+        return next(data)
 
     def oanda(self, instrument: str, granularity: str, count: int = None,
               start_time: datetime = None, end_time: datetime = None) -> pd.DataFrame:
