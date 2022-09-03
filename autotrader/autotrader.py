@@ -168,8 +168,7 @@ class AutoTrader:
         self._plot_portolio_chart = False
 
         #Set Live mode parameter
-        if (self._backtest_mode is False and self._scan_mode is False):
-            self._live_mode = True
+        self._live_mode = False
 
     def __repr__(self):
         return f"AutoTrader instance"
@@ -1044,6 +1043,7 @@ class AutoTrader:
             # Check global config requirements
             if sum([self._backtest_mode, self._scan_mode, self._papertrading]) == 0:
                 # Livetrade mode
+                self._live_mode = True
                 if global_config is None:
                     # No global_config
                     raise Exception(
@@ -1656,7 +1656,8 @@ class AutoTrader:
                     )
 
                 execution_feed = account_config["execution_feed"]
-                feed = self._feed if execution_feed is None else execution_feed
+                #feed = self._feed if execution_feed is None else execution_feed
+                feed = self._feed
                 autodata_config = {
                     "feed": feed,
                     "environment": self._environment,
