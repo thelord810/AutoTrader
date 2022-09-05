@@ -403,9 +403,15 @@ class AutoData:
         """
         api_url = f"http://127.0.0.1:8000/feed/live/37517"
         response = requests.get(api_url)
-        data = kakfaConsumer.confluent_consumer()
-        #print(next(data))
-        return next(data)
+        data_dict = kakfaConsumer.confluent_consumer()
+        row_data= next(data_dict)
+        data = pd.DataFrame(columns=['Open', 'High', 'Low', 'Close', 'volume', 'open_interest', 'count'])
+        row_data_df = pd.DataFrame([row_data])
+        row_data_df.rename(columns={'open': 'Open', 'low': 'Low', 'close': 'Close', 'high': 'High', 'ttv': 'volume', 'OI': 'open_interest', 'ltt': 'datetime'}, inplace=True)
+        row_data_df['datetime'] = pd.to_datetime(row_data_df['datetime'], format='%a %b  %d %H:%M:%S %Y', utc=True)
+        row_data_df.set_index('datetime', inplace=True)
+        data = pd.concat([data, row_data_df])
+        return data
 
     def oanda(self, instrument: str, granularity: str, count: int = None,
               start_time: datetime = None, end_time: datetime = None) -> pd.DataFrame:

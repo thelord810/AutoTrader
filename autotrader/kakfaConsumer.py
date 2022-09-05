@@ -8,7 +8,7 @@ marketdata = pd.DataFrame(columns=['symbol', 'open', 'last', 'high', 'low', 'cha
 schema = """
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Data",
+  "title": "IciciData",
   "description": "A Confluent Kafka Market Data Schena",
   "type": "object",
   "properties": {
@@ -70,7 +70,7 @@ schema = """
     },  
     "CHNGOI": {
       "description": "Change in OI",
-      "type": "number"
+      "type": "string"
     },  
     "ttq": {
       "description": "Total Traded Quantity",
@@ -86,7 +86,7 @@ schema = """
     },  
     "ttv": {
       "description": "Total Traded volume",
-      "type": "number"
+      "type": "string"
     },  
     "trend": {
       "description": "Trend",
@@ -111,9 +111,17 @@ schema = """
     "exchange": {
       "description": "Exchange",
       "type": "string"
-    }                                                                     
+    },     
+    "product_type": {
+      "description": "Product Type",
+      "type": "string"
+    },     
+    "expiry_date": {
+      "description": "Expiry date of Instrument",
+      "type": "string"
+    }                                                                    
   },
-  "required": ["open", "last", "high", "low"]
+  "required": ["open", "last", "high", "low", "change", "bPrice","bQty","sPrice","sQty","ltq","avgPrice","OI","CHNGOI","ttq","totalBuyQt","totalSellQ","ttv","lowerCktLm","upperCktLm","ltt","close","product_type", "expiry_date"]
 }
 """
 
@@ -124,7 +132,27 @@ def dict_to_data(obj, ctx):
     return dict(open=obj['open'],
                 last=obj['last'],
                 high=obj['high'],
-                low=obj['low'])
+                low=obj['low'],
+                bPrice=obj['bPrice'],
+                bQty=obj['bQty'],
+                sPrice=obj['sPrice'],
+                sQty=obj['sQty'],
+                OI=obj['OI'],
+                ttq=obj['ttq'],
+                ttv=obj['ttv'],
+                ltt=obj['ltt'],
+                ltq=obj['ltq'],
+                avgPrice=obj['avgPrice'],
+                CHNGOI=obj['CHNGOI'],
+                totalBuyQt=obj['totalBuyQt'],
+                totalSellQ=obj['totalSellQ'],
+                lowerCktLm=obj['lowerCktLm'],
+                upperCktLm=obj['upperCktLm'],
+                close=obj['close'],
+                product_type=obj['product_type'],
+                expiry_date=obj['expiry_date'],
+                change=obj['change']
+                )
 #
 #
 # async def consume_json():
@@ -182,6 +210,6 @@ def consume(consumer, timeout):
     consumer.close()
 
 def confluent_consumer():
-    consumer.subscribe(['ticker'])
+    consumer.subscribe(['ticker5'])
     for msg in consume(consumer, 1.0):
         yield msg.value()
