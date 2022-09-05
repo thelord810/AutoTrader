@@ -3,7 +3,7 @@ import pandas as pd
 import smtplib, ssl
 from datetime import datetime
 from email.mime.text import MIMEText
-from autotrader.brokers.trading import Order
+from autotrader_custom_repo.AutoTrader.autotrader.brokers.trading import Order
 from email.mime.multipart import MIMEMultipart
 
 

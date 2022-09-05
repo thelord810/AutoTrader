@@ -1,11 +1,7 @@
 from confluent_kafka import DeserializingConsumer
 from confluent_kafka.schema_registry.json_schema import JSONDeserializer
 from confluent_kafka.serialization import StringDeserializer
-import asyncio
 
-from aiokafka import AIOKafkaConsumer
-import asyncio
-import json
 import pandas as pd
 
 marketdata = pd.DataFrame(columns=['symbol', 'open', 'last', 'high', 'low', 'change', 'bPrice', 'bQty', 'sPrice', 'sQty', 'ltq', 'avgPrice', 'quotes', 'OI', 'CHNGOI', 'ttq', 'totalBuyQt', 'totalSellQ', 'ttv', 'trend', 'lowerCktLm', 'upperCktLm', 'ltt', 'close', 'exchange'])
@@ -17,30 +13,109 @@ schema = """
   "type": "object",
   "properties": {
     "symbol": {
-      "description": "User's favorite number",
+      "description": "Stock Symbol Token",
       "type": "string"
     },
     "open": {
-      "description": "User's favorite color",
+      "description": "Open Price",
       "type": "number"
     },
     "last": {
-      "description": "User's twitter handle",
+      "description": "Last Price",
       "type": "number"
     },
     "high": {
-      "description": "Just to demo the issue with required fields",
+      "description": "High Price",
       "type": "number"
     },
     "low": {
-      "description": "Just to demo the issue with required fields",
+      "description": "Low Price",
       "type": "number"
-    }
+    },
+    "change": {
+      "description": "Price Change",
+      "type": "number"
+    },
+    "bPrice": {
+      "description": "Buy Price",
+      "type": "number"
+    },
+    "bQty": {
+      "description": "Buy Quantity",
+      "type": "number"
+    },
+    "sPrice": {
+      "description": "Sell Price",
+      "type": "number"
+    },
+    "sQty": {
+      "description": "Sell Quantity",
+      "type": "number"
+    },
+    "ltq": {
+      "description": "Last Traded Quantity",
+      "type": "number"
+    },
+    "avgPrice": {
+      "description": "Average Price",
+      "type": "number"
+    },       
+    "quotes": {
+      "description": "Quotes",
+      "type": "string"
+    },  
+    "OI": {
+      "description": "Open Interest",
+      "type": "number"
+    },  
+    "CHNGOI": {
+      "description": "Change in OI",
+      "type": "number"
+    },  
+    "ttq": {
+      "description": "Total Traded Quantity",
+      "type": "number"
+    },  
+    "totalBuyQt": {
+      "description": "Total Sell Quantity",
+      "type": "number"
+    },  
+    "totalSellQ": {
+      "description": "Total Sell Quantity",
+      "type": "number"
+    },  
+    "ttv": {
+      "description": "Total Traded volume",
+      "type": "number"
+    },  
+    "trend": {
+      "description": "Trend",
+      "type": "number"
+    },  
+    "lowerCktLm": {
+      "description": "Lower Circuit limit",
+      "type": "number"
+    },  
+    "upperCktLm": {
+      "description": "Upper Circuit limit",
+      "type": "number"
+    },  
+    "ltt": {
+      "description": "Last traded time",
+      "type": "string"
+    },  
+    "close": {
+      "description": "Last day close price",
+      "type": "number"
+    },  
+    "exchange": {
+      "description": "Exchange",
+      "type": "string"
+    }                                                                     
   },
   "required": ["open", "last", "high", "low"]
 }
 """
-
 
 def dict_to_data(obj, ctx):
     if obj is None:

@@ -15,7 +15,7 @@ from autotrader_custom_repo.AutoTrader.autotrader.brokers.trading import Order
 from datetime import datetime, timedelta, timezone
 from autotrader_custom_repo.AutoTrader.autotrader.brokers.broker_utils import OrderBook
 import sys
-from autotrader.brokers.ib.utils import Utils as IB_Utils
+#from autotrader.brokers.ib.utils import Utils as IB_Utils
 from autotrader_custom_repo.AutoTrader.autotrader.brokers import kotak
 from autotrader_custom_repo.AutoTrader.autotrader import kakfaConsumer
 
@@ -374,7 +374,8 @@ class AutoData:
         response = requests.post(api_url, json=instrument_info)
         json_response = json.loads(response.content)
         df = pd.DataFrame(json_response['Success'])
-        df_simplified = df[['datetime', 'open', 'high', 'low', 'close', 'volume', 'open_interest', 'count']]
+        #df_simplified = df[['datetime', 'open', 'high', 'low', 'close', 'volume', 'open_interest', 'count']]
+        df_simplified = df[['datetime', 'open', 'high', 'low', 'close', 'volume', 'count']]
         # Convert datetime column
         df_simplified['datetime'] = pd.to_datetime(df['datetime'], format='%Y-%m-%d %H:%M:%S', utc=True)
         df_simplified.set_index('datetime', inplace=True)
@@ -385,6 +386,7 @@ class AutoData:
         df_simplified['Low'] = df_simplified['Low'].astype(float)
         df_simplified['Close'] = df_simplified['Close'].astype(float)
         df_simplified['High'] = df_simplified['High'].astype(float)
+        #df_simplified['open_interest'] = df_simplified['open_interest'].astype(float)
 
         return df_simplified
 
