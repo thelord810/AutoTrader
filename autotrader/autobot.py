@@ -1,6 +1,7 @@
 import os
 import importlib
 import pandas as pd
+import logging
 from autotrader_custom_repo.AutoTrader.autotrader.comms import emailing
 from datetime import datetime, timezone
 from autotrader_custom_repo.AutoTrader.autotrader.autodata import AutoData
@@ -71,6 +72,7 @@ class AutoTraderBot:
             The trading bot will be instantiated and ready for trading.
 
         """
+        logging.info(f"Initiating Bot for {autotrader_instance}")
         # Inherit user options from autotrader
         for attribute, value in autotrader_instance.__dict__.items():
             setattr(self, attribute, value)
@@ -112,6 +114,7 @@ class AutoTraderBot:
                 self._instrument_to_broker[instrument] = [self._broker]
 
         # Unpack strategy parameters and assign to strategy_params
+        logging.info(f"Unpacking Strategy from config {strategy_dict}")
         strategy_config = strategy_dict["config"]
         interval = strategy_config["INTERVAL"]
         period = strategy_config["PERIOD"]
@@ -171,6 +174,7 @@ class AutoTraderBot:
         self._strategy_shutdown_method = strategy_dict["shutdown_method"]
 
         # Get data feed configuration
+        logging.info(f"Getting data feed config")
         data_config = get_data_config(
             feed=self._feed,
             global_config=self._global_config_dict,
@@ -194,6 +198,7 @@ class AutoTraderBot:
         portfolio = strategy_config["WATCHLIST"] if trade_portfolio else False
 
         # Fetch data
+        logging.info(f"Fetching initial data and creating stream object")
         self._get_data = AutoData(
             data_config, self._allow_dancing_bears, self._base_currency
         )
@@ -857,6 +862,7 @@ class AutoTraderBot:
                 )
             else:
                 current_bars = None
+
             return current_bars
 
         def process_strat_data(original_strat_data, check_for_future_data):

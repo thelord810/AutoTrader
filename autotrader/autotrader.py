@@ -23,6 +23,7 @@ from autotrader_custom_repo.AutoTrader.autotrader.utilities import (
 )
 from autotrader_custom_repo.AutoTrader.autotrader.autoplot import AutoPlot
 from autotrader_custom_repo.AutoTrader.autotrader.autobot import AutoTraderBot
+from autotrader_custom_repo.AutoTrader.autotrader.comms import LoggingFramework
 
 
 
@@ -73,6 +74,10 @@ class AutoTrader:
         """AutoTrader initialisation. Called when creating new AutoTrader
         instance.
         """
+
+        #Create logger on Platform level and propogate it.
+        self.platform_logger = LoggingFramework.setup_logging("platform")
+
         # Public attributes
         self.trade_results = None
 
@@ -326,7 +331,7 @@ class AutoTrader:
         """
         # TODO - assign unique ID to different strategies to prevent instrument
         # traded names conflict
-
+        self.platform_logger.info("Adding Strategy to Autotrader instance")
         if self._home_dir is None:
             # Home directory has not yet been set, postpone strategy addition
             if config_filename is None:
@@ -369,19 +374,19 @@ class AutoTrader:
             required_keys = ["CLASS", "INTERVAL", "PERIOD"]
             for key in required_keys:
                 if key not in new_strategy:
-                    print(
+                    self.platform_logger.info(
                         f"Please include the '{key}' key in your strategy configuration."
                     )
                     sys.exit(0)
 
             if name in self._strategy_configs:
-                print(
-                    "Warning: duplicate strategy name deteced. Please check "
+                self.platform_logger.warning(
+                    "Warning: duplicate strategy name detected. Please check "
                     + "the NAME field of your strategy configuration file and "
                     + "make sure it is not the same as other strategies being "
                     + "run from this instance."
                 )
-                print("Conflicting name:", name)
+                self.platform_logger.error("Conflicting name:", name)
 
             # Check PERIOD type
             if isinstance(new_strategy["PERIOD"], float):
@@ -405,7 +410,7 @@ class AutoTrader:
                     new_strategy["INTERVAL"]
                 ).to_pytimedelta()
             except:
-                print(
+                self.platform_logger.error(
                     f"Strategy configuration error: invalid time interval: '{new_strategy['INTERVAL']}'."
                 )
                 sys.exit(0)
@@ -517,7 +522,7 @@ class AutoTrader:
 
         # TODO - allow specifying spread dictionary to have custom spreads for
         # different products
-
+        self.platform_logger.info("Configuring Virtual Account")
         # Enforce virtual broker and paper trading environment
         if exchange is not None:
             broker_name = exchange
@@ -527,7 +532,7 @@ class AutoTrader:
 
         if broker_name != "virtual" and broker_name not in self._broker_name:
             # Unrecognised broker
-            print(
+            self.platform_logger.error(
                 f"Please specify the broker '{broker_name}' in the "
                 + "configure method before configuring its virtual account."
             )
@@ -600,6 +605,7 @@ class AutoTrader:
             example, both start and end arguments must be provided together,
             or alternatively, start_dt and end_dt must both be provided.
         """
+        self.platform_logger.info("Configuring backtesting settings")
         # Convert start and end strings to datetime objects
         if start_dt is None and end_dt is None:
             start_dt = datetime.strptime(start + "+0000", "%d/%m/%Y%z")
@@ -649,7 +655,7 @@ class AutoTrader:
         --------
         AutoTrader.add_data()
         """
-
+        self.platform_logger.info("Configuring Optimization settings")
         if type(bounds) == str:
             full_tuple = literal_eval(bounds)
             bounds = [(x[0], x[-1]) for x in full_tuple]
@@ -771,6 +777,7 @@ class AutoTrader:
                            }
 
         """
+        self.platform_logger.info("Adding local data to strategy")
         dir_path = (
             abs_dir_path
             if abs_dir_path is not None
@@ -868,7 +875,7 @@ class AutoTrader:
             The scan settings of the active AutoTrader instance will be
             configured.
         """
-
+        self.platform_logger.info("Configuring scanner settings")
         # If a strategy is provided here, add it
         if strategy_filename is not None:
             self.add_strategy(strategy_filename)
@@ -908,17 +915,17 @@ class AutoTrader:
             and not self._papertrading
             and int(self._verbosity) > 1
         ):
-            print(
+            self.platform_logger.warning(
                 "Warning: no strategy has been provided. Do so by using the"
                 + " 'add_strategy' method of AutoTrader."
             )
 
         if sum([self._backtest_mode, self._scan_mode]) > 1:
-            print(
+            self.platform_logger.error(
                 "Error: backtest mode and scan mode are both set to True,"
                 + " but only one of these can run at a time."
             )
-            print("Please check your inputs and try again.")
+            self.platform_logger.error("Please check your inputs and try again.")
             sys.exit(0)
 
         # Check self._timestep
@@ -950,7 +957,7 @@ class AutoTrader:
 
         if self._backtest_mode:
             if self._notify > 0:
-                print(
+                self.platform_logger.warning(
                     "Warning: notify set to {} ".format(self._notify)
                     + "during backtest. Setting to zero to prevent emails."
                 )
@@ -958,7 +965,7 @@ class AutoTrader:
 
             # Check that the backtest does not request future data
             if self._data_end > datetime.now(tz=timezone.utc):
-                print(
+                self.platform_logger.warning(
                     "Warning: you have requested backtest data into the "
                     + "future. The backtest end date will be adjsuted to "
                     + "the current time."
@@ -987,7 +994,7 @@ class AutoTrader:
             if self._backtest_mode:
                 self._run_optimise()
             else:
-                print("Please set backtest parameters to run optimisation.")
+                self.platform_logger.info("Please set backtest parameters to run optimisation.")
 
         else:
             # Trading
@@ -1137,6 +1144,7 @@ class AutoTrader:
         None
             The plot settings will be saved to the active AutoTrader instance.
         """
+        self.platform_logger.info("Configuring plot settings")
         # Assign attributes
         self._max_indis_over = max_indis_over
         self._max_indis_below = max_indis_below
@@ -1171,6 +1179,7 @@ class AutoTrader:
         If there is only one trading bot deployed, this will be returned
         directly, rather than in a dict.
         """
+        self.platform_logger.info(f"Deploying Bot for {instrument}")
         bots = {}
         for bot in self._bots_deployed:
             symbol = bot.instrument
@@ -1236,38 +1245,38 @@ class AutoTrader:
                 longest_lose_streak = trade_summary["all_trades"]["lose_streak"]
                 total_fees = trade_summary["all_trades"]["total_fees"]
 
-            print("\n----------------------------------------------")
-            print("               Trading Results")
-            print("----------------------------------------------")
-            print("Start date:              {}".format(start_date))
-            print("End date:                {}".format(end_date))
-            print("Duration:                {}".format(duration))
-            print("Starting balance:        ₹{}".format(round(starting_balance, 2)))
-            print("Ending balance:          ₹{}".format(round(ending_balance, 2)))
-            print("Ending NAV:              ₹{}".format(round(ending_NAV, 2)))
-            print(
+            self.platform_logger.info("\n----------------------------------------------")
+            self.platform_logger.info("               Trading Results")
+            self.platform_logger.info("----------------------------------------------")
+            self.platform_logger.info("Start date:              {}".format(start_date))
+            self.platform_logger.info("End date:                {}".format(end_date))
+            self.platform_logger.info("Duration:                {}".format(duration))
+            self.platform_logger.info("Starting balance:        ₹{}".format(round(starting_balance, 2)))
+            self.platform_logger.info("Ending balance:          ₹{}".format(round(ending_balance, 2)))
+            self.platform_logger.info("Ending NAV:              ₹{}".format(round(ending_NAV, 2)))
+            self.platform_logger.info(
                 "Total return:            ₹{} ({}%)".format(
                     round(abs_return, 2), round(pc_return, 1)
                 )
             )
-            print("Maximum drawdown:        {}%".format(round(max_drawdown * 100, 2)))
+            self.platform_logger.info("Maximum drawdown:        {}%".format(round(max_drawdown * 100, 2)))
             if no_trades > 0:
-                print("Total no. trades:        {}".format(no_trades))
-                print("No. long trades:         {}".format(no_long_trades))
-                print("No. short trades:        {}".format(no_short_trades))
-                print("Total fees paid:         ₹{}".format(round(total_fees, 3)))
-                print("Win rate:                {}%".format(round(win_rate, 1)))
-                print("Max win:                 ₹{}".format(round(max_win, 2)))
-                print("Average win:             ₹{}".format(round(avg_win, 2)))
-                print("Max loss:                -₹{}".format(round(max_loss, 2)))
-                print("Average loss:            -₹{}".format(round(avg_loss, 2)))
-                print(
+                self.platform_logger.info("Total no. trades:        {}".format(no_trades))
+                self.platform_logger.info("No. long trades:         {}".format(no_long_trades))
+                self.platform_logger.info("No. short trades:        {}".format(no_short_trades))
+                self.platform_logger.info("Total fees paid:         ₹{}".format(round(total_fees, 3)))
+                self.platform_logger.info("Win rate:                {}%".format(round(win_rate, 1)))
+                self.platform_logger.info("Max win:                 ₹{}".format(round(max_win, 2)))
+                self.platform_logger.info("Average win:             ₹{}".format(round(avg_win, 2)))
+                self.platform_logger.info("Max loss:                -₹{}".format(round(max_loss, 2)))
+                self.platform_logger.info("Average loss:            -₹{}".format(round(avg_loss, 2)))
+                self.platform_logger.info(
                     "Longest winning streak:  {} positions".format(longest_win_streak)
                 )
-                print(
+                self.platform_logger.info(
                     "Longest losing streak:   {} positions".format(longest_lose_streak)
                 )
-                print(
+                self.platform_logger.info(
                     "Average trade duration:  {}".format(
                         trade_summary["all_trades"]["avg_trade_duration"]
                     )
@@ -1275,19 +1284,19 @@ class AutoTrader:
 
                 no_open = trade_summary["no_open"]
                 if no_open > 0:
-                    print("Positions still open:    {}".format(no_open))
+                    self.platform_logger.info("Positions still open:    {}".format(no_open))
 
             else:
-                print("\n No trades closed.")
+                self.platform_logger.info("\n No trades closed.")
 
             no_cancelled = trade_summary["no_cancelled"]
             if no_cancelled > 0:
-                print("Cancelled orders:        {}".format(no_cancelled))
+                self.platform_logger.info("Cancelled orders:        {}".format(no_cancelled))
 
             # Long trades
             no_long = trade_summary["long_positions"]["total"]
-            print("\n          Summary of long positions")
-            print("----------------------------------------------")
+            self.platform_logger.info("\n          Summary of long positions")
+            self.platform_logger.info("----------------------------------------------")
             if no_long > 0:
                 avg_long_win = trade_summary["long_positions"]["avg_long_win"]
                 max_long_win = trade_summary["long_positions"]["max_long_win"]
@@ -1295,19 +1304,19 @@ class AutoTrader:
                 max_long_loss = trade_summary["long_positions"]["max_long_loss"]
                 long_wr = trade_summary["long_positions"]["long_wr"]
 
-                print("No. long positions:      {}".format(no_long))
-                print("Win rate:                {}%".format(round(long_wr, 1)))
-                print("Max win:                 ₹{}".format(round(max_long_win, 2)))
-                print("Average win:             ₹{}".format(round(avg_long_win, 2)))
-                print("Max loss:                -₹{}".format(round(max_long_loss, 2)))
-                print("Average loss:            -₹{}".format(round(avg_long_loss, 2)))
+                self.platform_logger.info("No. long positions:      {}".format(no_long))
+                self.platform_logger.info("Win rate:                {}%".format(round(long_wr, 1)))
+                self.platform_logger.info("Max win:                 ₹{}".format(round(max_long_win, 2)))
+                self.platform_logger.info("Average win:             ₹{}".format(round(avg_long_win, 2)))
+                self.platform_logger.info("Max loss:                -₹{}".format(round(max_long_loss, 2)))
+                self.platform_logger.info("Average loss:            -₹{}".format(round(avg_long_loss, 2)))
             else:
-                print("There were no long positions.")
+                self.platform_logger.info("There were no long positions.")
 
             # Short trades
             no_short = trade_summary["short_positions"]["total"]
-            print("\n         Summary of short positions")
-            print("----------------------------------------------")
+            self.platform_logger.info("\n         Summary of short positions")
+            self.platform_logger.info("----------------------------------------------")
             if no_short > 0:
                 avg_short_win = trade_summary["short_positions"]["avg_short_win"]
                 max_short_win = trade_summary["short_positions"]["max_short_win"]
@@ -1315,15 +1324,15 @@ class AutoTrader:
                 max_short_loss = trade_summary["short_positions"]["max_short_loss"]
                 short_wr = trade_summary["short_positions"]["short_wr"]
 
-                print("No. short positions:     {}".format(no_short))
-                print("Win rate:                {}%".format(round(short_wr, 1)))
-                print("Max win:                 ₹{}".format(round(max_short_win, 2)))
-                print("Average win:             ₹{}".format(round(avg_short_win, 2)))
-                print("Max loss:                -₹{}".format(round(max_short_loss, 2)))
-                print("Average loss:            -₹{}".format(round(avg_short_loss, 2)))
+                self.platform_logger.info("No. short positions:     {}".format(no_short))
+                self.platform_logger.info("Win rate:                {}%".format(round(short_wr, 1)))
+                self.platform_logger.info("Max win:                 ₹{}".format(round(max_short_win, 2)))
+                self.platform_logger.info("Average win:             ₹{}".format(round(avg_short_win, 2)))
+                self.platform_logger.info("Max loss:                -₹{}".format(round(max_short_loss, 2)))
+                self.platform_logger.info("Average loss:            -₹{}".format(round(avg_short_loss, 2)))
 
             else:
-                print("There were no short positions.")
+                self.platform_logger.info("There were no short positions.")
 
             # Check for multiple instruments
             if len(trade_results.instruments_traded) > 1:
@@ -1368,10 +1377,10 @@ class AutoTrader:
                     }
                 ).fillna(0)
 
-                print("\n Instrument Breakdown:")
-                print(results.to_string(index=False))
+                self.platform_logger.info("\n Instrument Breakdown:")
+                self.platform_logger.info(results.to_string(index=False))
         else:
-            print("No updates to report.")
+            self.platform_logger.info("No updates to report.")
 
     def plot_backtest(self, bot=None) -> None:
         """Plots trade results of an AutoTrader Bot.
@@ -1387,6 +1396,7 @@ class AutoTrader:
         None
             A chart will be generated and shown.
         """
+        self.platform_logger.info("Plotting backtest result on chart")
 
         def portfolio_plot():
             ap = self._instantiate_autoplot()
@@ -1462,7 +1472,7 @@ class AutoTrader:
         self._configure_emailing(self._global_config_dict)
 
         if int(self._verbosity) > 0:
-            print(pyfiglet.figlet_format("AutoTrader", font="slant"))
+            self.platform_logger.info("\n" + pyfiglet.figlet_format("AutoTrader", font="slant"))
 
         # Assign trading bots to each strategy
         for strategy, config in self._strategy_configs.items():
@@ -1511,29 +1521,28 @@ class AutoTrader:
 
         if int(self._verbosity) > 0:
             if self._backtest_mode:
-                print("BACKTEST MODE")
+                self.platform_logger.info("BACKTEST MODE")
             else:
                 if self._scan_mode:
-                    print("SCAN MODE")
+                    self.platform_logger.info("SCAN MODE")
                 elif self._papertrading:
                     trade_mode = "auto" if len(self._bots_deployed) > 0 else "manual"
                     extra_str = f"{trade_mode} trade in {self._environment} environment"
-                    print(f"PAPERTRADE MODE ({extra_str})")
+                    self.platform_logger.info(f"PAPERTRADE MODE ({extra_str})")
                 else:
                     trade_mode = "auto" if len(self._bots_deployed) > 0 else "manual"
                     extra_str = f"{trade_mode} trade in {self._environment} environment"
                     self.livetrading = 1
-                    print(f"LIVETRADE MODE ({extra_str})")
-                print(
+                    self.platform_logger.info(f"LIVETRADE MODE ({extra_str})")
+                self.platform_logger.info(
                     "Current time: {}".format(
                         datetime.now().strftime("%A, %B %d %Y, " + "%H:%M:%S")
                     )
                 )
 
             for bot in self._bots_deployed:
-                print(
-                    f"\nAutoTraderBot assigned to trade {bot.instrument}",
-                    f"with {bot._broker_name} broker using {bot._strategy_name}.",
+                self.platform_logger.info(
+                    f"AutoTraderBot assigned to trade {bot.instrument} with {bot._broker_name} broker using {bot._strategy_name}.",
                 )
 
         # Begin trading
@@ -1608,6 +1617,7 @@ class AutoTrader:
 
     def _assign_broker(self, broker_config: dict) -> None:
         """Configures and assigns appropriate broker(s) for trading."""
+        self.platform_logger.info(f"Assigning broker with following configuration: {broker_config}")
         # Check for multiple brokers
         if not self._multiple_brokers:
             # Put broker config in dict to allow single iteration
@@ -1712,7 +1722,7 @@ class AutoTrader:
 
     def _run_optimise(self) -> None:
         """Runs optimisation of strategy parameters."""
-
+        self.platform_logger.info("Running optimization for Strategy Parameters")
         # Modify verbosity for optimisation
         verbosity = self._verbosity
         self._verbosity = 0
@@ -1721,8 +1731,8 @@ class AutoTrader:
 
         # Look in self._strategy_configs for config
         if len(self._strategy_configs) > 1:
-            print("Error: please optimise one strategy at a time.")
-            print("Exiting.")
+            self.platform_logger.error("Error: please optimise one strategy at a time.")
+            self.platform_logger.error("Exiting.")
             sys.exit(0)
         else:
             config_dict = self._strategy_configs[list(self._strategy_configs.keys())[0]]
@@ -1742,12 +1752,12 @@ class AutoTrader:
         opt_params = result[0]
         opt_value = result[1]
 
-        print("\nOptimisation complete.")
-        print("Time to run: {}s".format(round((stop - start), 3)))
-        print("Optimal parameters:")
-        print(opt_params)
-        print("Objective:")
-        print(opt_value)
+        self.platform_logger.info("\nOptimisation complete.")
+        self.platform_logger.info("Time to run: {}s".format(round((stop - start), 3)))
+        self.platform_logger.info("Optimal parameters:")
+        self.platform_logger.info(opt_params)
+        self.platform_logger.info("Objective:")
+        self.platform_logger.info(opt_value)
 
         # Reset verbosity
         self._verbosity = verbosity
@@ -1777,26 +1787,27 @@ class AutoTrader:
         except:
             objective = 1000
 
-        print("Parameters/objective:", params, "/", round(objective, 3))
+        self.platform_logger.info(f"Parameters/objective: {params} / {round(objective, 3)}")
 
         return objective
 
     def _check_bot_data(self) -> None:
         """Function to compare lengths of bot data."""
+        self.platform_logger.info("Checking Bot data")
         data_lengths = [len(bot.data) for bot in self._bots_deployed]
         if min(data_lengths) != np.mean(data_lengths):
-            print(
+            self.platform_logger.warning(
                 "Warning: mismatched data lengths detected. "
                 + "Correcting via row reduction."
             )
             self._normalise_bot_data()
-            print("  Done.\n")
+            self.platform_logger.info("Done.")
 
     def _normalise_bot_data(self) -> None:
         """Function to normalise the data of mutliple bots so that their
         indexes are equal, allowing backtesting in periodic update mode.
         """
-
+        self.platform_logger.info("Normalizing bot data")
         # Construct list of bot data
         data = [bot.data for bot in self._bots_deployed]
 
@@ -1963,7 +1974,7 @@ class AutoTrader:
                 picklefiles = "\n ".join(picklefile_list)
                 check_str = picklefiles.strip().split("\n")
                 if len(check_str) > 1 or check_str[0] != "":
-                    print(
+                    self.platform_logger.info(
                         f"\nThe following pickle files have been created:\n {picklefiles}"
                         + "\nUse the `unpickle_broker` utility to access these."
                     )
@@ -1976,7 +1987,7 @@ class AutoTrader:
     def _trade_update_loop(self):
         """Runs the mode-dependent trade update loop."""
         if int(self._verbosity) > 0 and self._backtest_mode:
-            print("\nTrading...\n")
+            self.platform_logger.info("Trading...")
             self._backtest_start_time = timeit.default_timer()
 
         if len(self._bots_deployed) == 0:
@@ -2025,7 +2036,7 @@ class AutoTrader:
 
                                 except:
                                     if int(self._verbosity) > 0:
-                                        print(
+                                        self.platform_logger.info(
                                             "Error: failed to update bot running"
                                             + f"{bot._strategy_name} ({bot.instrument})"
                                         )
@@ -2041,14 +2052,14 @@ class AutoTrader:
                             )
 
                         except KeyboardInterrupt:
-                            print("\nKilling bot(s).")
+                            self.platform_logger.info("Killing bot(s).")
                             instance_filepath = os.path.join(
                                 self._home_dir, "active_bots", instance_str
                             )
                             try:
                                 os.remove(instance_filepath)
                             except FileNotFoundError:
-                                print(f"Intance file '{instance_str}' already deleted.")
+                                self.platform_logger.error(f"Intance file '{instance_str}' already deleted.")
                             break
 
             elif self._run_mode.lower() == "periodic":

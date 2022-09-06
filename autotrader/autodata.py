@@ -401,8 +401,8 @@ class AutoData:
     def common_liveprice(self, order: Order, **kwargs) -> dict:
         """Returns live feed for Instrument provided
         """
-        api_url = f"http://127.0.0.1:8000/feed/live/37517"
-        response = requests.get(api_url)
+        # api_url = f"http://127.0.0.1:8000/feed/live/37517"
+        # response = requests.get(api_url)
         data_dict = kakfaConsumer.confluent_consumer()
         row_data= next(data_dict)
         data = pd.DataFrame(columns=['Open', 'High', 'Low', 'Close', 'volume', 'open_interest', 'count'])
