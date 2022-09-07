@@ -11,11 +11,11 @@ class Utils(BrokerUtils):
     
         
     def __repr__(self):
-        return 'AutoTrader-InteractiveBrokers Utilities'
+        return 'AutoTrader-Icici Utilities'
     
     
     def __str__(self):
-        return 'AutoTrader-InteractiveBrokers Utilities'
+        return 'AutoTrader-Icici Utilities'
     
     
     def check_response(self, response):

@@ -1865,7 +1865,7 @@ class AutoTrader:
             instance_file_exists = True
 
             if int(self._verbosity) > 0:
-                print(f"Active AutoTrader instance file: active_bots/{instance_str}")
+                self.platform_logger.info(f"Active AutoTrader instance file: active_bots/{instance_str}")
 
         else:
             dirpath = os.path.join(self._home_dir, "active_bots")
@@ -1877,9 +1877,8 @@ class AutoTrader:
             instance_file_exists = instance_str in instances
 
         if int(self._verbosity) > 0 and not instance_file_exists:
-            print(
-                f"Instance file '{instance_str}' deleted. AutoTrader",
-                "will now shut down.",
+            self.platform_logger.info(
+                f"Instance file '{instance_str}' deleted. AutoTrader will now shut down."
             )
 
         return instance_file_exists
@@ -1889,10 +1888,10 @@ class AutoTrader:
         # Check trading environment
         if self._papertrading:
             # Toggle broker monitoring on
-            print(
+            self.platform_logger.info(
                 f"Running virtual broker updates at {self._broker_refresh_freq} intervals."
             )
-            print("To stop papertrading, use at.shutdown().")
+            self.platform_logger.info("To stop papertrading, use at.shutdown().")
 
             self._maintain_broker_thread = True
             sleep_time = pd.Timedelta(self._broker_refresh_freq).total_seconds()
@@ -1910,10 +1909,10 @@ class AutoTrader:
                         broker._update_all()
                         time.sleep(sleep_time)
                 except Exception as e:
-                    print(e)
+                    self.platform_logger.error(e)
             else:
                 if int(self._verbosity) > 0:
-                    print("Broker update thread killed.")
+                    self.platform_logger.info("Broker update thread killed.")
 
     def shutdown(self):
         """Shutdown the active AutoTrader instance."""
@@ -1938,7 +1937,7 @@ class AutoTrader:
                 bot._create_trade_results()
 
             if int(self._verbosity) > 0:
-                print(
+                self.platform_logger.info(
                     "Backtest complete (runtime "
                     + f"{round((backtest_end_time - self._backtest_start_time), 3)} s)."
                 )
@@ -2032,7 +2031,7 @@ class AutoTrader:
                         try:
                             for bot in self._bots_deployed:
                                 try:
-                                    bot._update(timestamp=datetime.now(timezone.utc))
+                                    bot._update(timestamp=datetime.now())
 
                                 except:
                                     if int(self._verbosity) > 0:

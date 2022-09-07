@@ -361,10 +361,10 @@ class AutoTraderBot:
                             + f"{direction} {order.order_type} order of "
                             + f"{order.size} units placed at {order.order_price}."
                         )
-                        print(order_string)
+                        logging.info(order_string)
                 else:
                     if int(self._verbosity) > 2:
-                        print(
+                        logging.info(
                             f"{current_time}: No signal detected ({self.instrument})."
                         )
 
@@ -381,7 +381,7 @@ class AutoTraderBot:
                     and self._email_params["host_email"] is not None
                 ):
                     if int(self._verbosity) > 0 and len(self._latest_orders) > 0:
-                        print("Sending emails ...")
+                        logging.info("Sending emails ...")
 
                     for order in orders:
                         emailing.send_order(
@@ -391,7 +391,7 @@ class AutoTraderBot:
                         )
 
                     if int(self._verbosity) > 0 and len(orders) > 0:
-                        print("  Done.\n")
+                        logging.info("Done.")
 
             # Check scan results
             if self._scan_mode:
@@ -486,6 +486,7 @@ class AutoTraderBot:
         timestamp = datetime.now() if timestamp is None else timestamp
         
         # Fetch new data
+        logging.info(f"Updated data for {timestamp}")
         data, multi_data, quote_data, auxdata = self.Stream.refresh(timestamp=timestamp)
 
         # Check data returned is valid
@@ -502,6 +503,7 @@ class AutoTraderBot:
         if auxdata is not None:
             strat_data = {"base": strat_data, "aux": auxdata}
 
+        logging.info(strat_data.to_dict('records'))
         # Assign data attributes to bot
         self._strat_data = strat_data
         self.data = data
@@ -604,19 +606,19 @@ class AutoTraderBot:
                         continue
 
                 # Check that an exchange has been specified
-                if order.exchange is None:
+                if order.broker is None:
                     # Exchange not specified
                     if self._multiple_brokers:
                         # Trading across multiple venues
                         raise Exception(
-                            "The exchange to which an order is to be "
+                            "The broker to which an order is to be "
                             + "submitted must be specified when trading across "
-                            + "multiple venues. Please include the 'exchange' "
+                            + "multiple venues. Please include the 'broker' "
                             + "argument when creating an order."
                         )
                     else:
                         # Trading on single venue, auto fill
-                        order.exchange = self._broker_name
+                        order.broker = self._broker_name
 
         # Perform checks
         checked_orders = check_type(orders)
@@ -632,10 +634,12 @@ class AutoTraderBot:
 
         for order in orders:
             # Get relevant broker
-            broker = self._brokers[order.exchange]
+            broker = self._brokers[order.broker]
 
             # Fetch precision for instrument
-            precision = broker._utils.get_precision(order.instrument)
+            #This is not required for Stocks and FnO. Will revisit later in currency
+            precision = None
+            #precision = broker._utils.get_precision(order.instrument)
 
             if self._feed != "none":
                 # Get order price from current bars

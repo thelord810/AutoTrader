@@ -2,6 +2,7 @@ import random
 import ks_api_client
 import numpy as np
 import requests
+import logging
 from autotrader_custom_repo.AutoTrader.autotrader.brokers.trading import Order, Trade, Position
 from autotrader_custom_repo.AutoTrader.autotrader.brokers.kotak.utils import Utils
 from ks_api_client import ks_api
@@ -43,15 +44,15 @@ class Broker:
         """
         self.utils = utils if utils is not None else Utils()
         
-        print("Initiated Kotak Interface for trading.")
+        logging.info("Initiated Kotak Interface for trading.")
         
         
     def __repr__(self):
-        return 'AutoTrader-Icici Securities interface'
+        return 'AutoTrader-Kotak Securities interface'
     
     
     def __str__(self):
-        return 'AutoTrader-Icici Securities interface'
+        return 'AutoTrader-Kotak Securities interface'
     
     
     def get_NAV(self) -> float:

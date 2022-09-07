@@ -7,7 +7,7 @@ from autotrader.brokers.ib.utils import Utils
 
 
 class Broker:
-    """AutoTrader-InteractiveBrokers API interface.
+    """AutoTrader-Icici API interface.
     
     Attributes
     ----------

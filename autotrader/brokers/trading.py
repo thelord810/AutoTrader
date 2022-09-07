@@ -63,8 +63,8 @@ class Order:
     limit_fee : str, optional
         The maximum fee to accept as a percentage (dYdX only). The default
         is '0.015'.
-    exchange : str
-        The exchange to which the order should be submitted.
+    broker : str
+        The broker to which the order should be submitted.
     ccxt_params : dict, optional
         The CCXT parameters dictionary to pass when creating an order. The
         default is {}.
@@ -105,7 +105,7 @@ class Order:
         self.size_precision = 5
 
         # Multi-exchange handling
-        self.exchange = None
+        self.broker = None
 
         # Stop loss arguments
         self.stop_type = stop_type
