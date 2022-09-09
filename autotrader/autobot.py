@@ -338,7 +338,7 @@ class AutoTraderBot:
                             order_time = current_bars[order.data_name].name
 
                     # Submit order to relevant exchange
-                    self._brokers[order.exchange].place_order(
+                    self._brokers[order.broker].place_order(
                         order, order_time=order_time
                     )
 
@@ -645,10 +645,10 @@ class AutoTraderBot:
                 # Get order price from current bars
                 if self._req_liveprice:
                     # Fetch current price
-                    liveprice_func = getattr(
-                        self._get_data, f"_{self._feed.lower()}_liveprice"
+                    livequotes_func = getattr(
+                        self._get_data, f"_{self._feed.lower()}_livequotes"
                     )
-                    last_price = liveprice_func(order)
+                    last_price = livequotes_func(order)
                 else:
                     # Fetch pseudo-current price
                     try:
@@ -667,14 +667,14 @@ class AutoTraderBot:
                 if order.order_type not in ["close", "reduce", "modify"]:
                     if order.direction < 0:
                         order_price = last_price["bid"]
-                        HCF = last_price["negativeHCF"]
+                        HCF = None
                     else:
                         order_price = last_price["ask"]
-                        HCF = last_price["positiveHCF"]
+                        HCF = None
                 else:
                     # Close, reduce or modify order type, provide dummy inputs
                     order_price = last_price["ask"]
-                    HCF = last_price["positiveHCF"]
+                    HCF = None
 
             else:
                 # Do not provide order price yet
@@ -857,10 +857,10 @@ class AutoTraderBot:
             """Returns the current bars of data. If the inputted data is for
             quote bars, then the quote_data boolean will be True.
             """
-            if len(data) > 0:
+            if len(self.data) > 0:
                 current_bars = self.Stream.get_trading_bars(
-                    data=data,
-                    quote_bars=quote_data,
+                    data=self.data,
+                    quote_bars=self.quote_data,
                     timestamp=timestamp,
                     processed_strategy_data=processed_strategy_data,
                 )

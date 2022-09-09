@@ -1252,9 +1252,9 @@ class DataStream:
             # Download data
             multi_data = {}
             if(self.live_mode):
-                data_func = getattr(self.get_data, f"{self.feed.lower()}_liveprice")
+                data_func = getattr(self.get_data, f"_{self.feed.lower()}_liveprice")
             else:
-                data_func = getattr(self.get_data, self.feed.lower())
+                data_func = getattr(self.get_data, f"_{self.feed.lower()}_historic")
 
             if self.portfolio:
                 # Portfolio strategy

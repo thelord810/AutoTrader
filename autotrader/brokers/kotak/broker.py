@@ -1,5 +1,6 @@
 import random
 import ks_api_client
+import json
 import numpy as np
 import requests
 import logging
@@ -42,7 +43,7 @@ class Broker:
         utils : Utils, optional
             Broker utilities class instance. The default is None.
         """
-        self.utils = utils if utils is not None else Utils()
+        self._utils = utils if utils is not None else Utils()
         
         logging.info("Initiated Kotak Interface for trading.")
         
@@ -60,7 +61,8 @@ class Broker:
         """
         self._check_connection()
         summary = self.get_summary()
-        return float(summary['NetLiquidation']['value'])
+        margin = summary['derivatives'][0]['futures']['marginAvailable']
+        return margin
     
     
     def get_balance(self) -> float:
@@ -88,19 +90,32 @@ class Broker:
         
         # Call order to set order time
         order()
-        
-        if order.order_type == 'market':
-            self._place_market_order(order)
-        elif order.order_type == 'stop-limit':
-            self._place_stop_limit_order(order)
-        elif order.order_type == 'limit':
-            self._place_limit_order(order)
-        elif order.order_type == 'close':
-            self._close_position(order)
+
+        api_url = "http://127.0.0.1:8000/placeorder"
+        response = requests.post(api_url)
+        if order.direction == 1:
+            transaction_type = "BUY"
         else:
-            print("Order type not recognised.")
+            transaction_type = "SELL"
+
+        #Get proper instrument token
         
-        self._refresh()
+        order_info = {
+                            "instrument": order.trade_instrument,
+                            "order_type": "N",
+                            "transaction_type": transaction_type,
+                            "quantity": 1,
+                            "price": 0,
+                            "disclosed_quantity": 0,
+                            "trigger_price": 0,
+                            "tag": "Straddle",
+                            "validity": "GFD",
+                            "variety": "REGULAR"
+                           }
+        response = requests.post(api_url, json=order_info)
+        json_response = json.loads(response.content)
+        full_account_summary = json_response['Success']
+        return full_account_summary
         
     
     def get_orders(self, instrument: str = None, **kwargs) -> dict:
@@ -349,10 +364,11 @@ class Broker:
         """Returns account summary.
         """
         self._check_connection()
-        raw_summary = self.ib.accountSummary(self.account)
-        summary = self.utils.accsum_to_dict(self.account, raw_summary)
-        
-        return summary
+        api_url = "http://127.0.0.1:8000/margin"
+        response = requests.get(api_url)
+        json_response = json.loads(response.content)
+        full_account_summary = json_response['Success']
+        return full_account_summary
     
     
     def _get_historical_data(self, instrument: str, interval: str, 
@@ -386,27 +402,7 @@ class Broker:
         """Checks if there is an active connection to IB. If not, will 
         attempt to reconnect.
         """
-        # self._refresh()
-        # connected = self.ib.isConnected()
-        #
-        # while not connected:
-        #     try:
-        #         # Try to connect
-        #         self.ib = ib_insync.IB()
-        #         self._connect()
-        #     except:
-        #         print("Connection to IB failed... trying to reconnect.")
-        #         # Connection failed, increment client ID
-        #         self.client_id = random.randint(0, 9999)
-        #
-        #         # Sleep for a little while
-        #         self.ib.sleep(10)
-        #
-        #     # Update connection status
-        #     connected = self.ib.isConnected()
-        # self._check_connection()
-        # self.ib.reqHistoricalData()
-        raise NotImplementedError("This method is not available.")
+        return True
         
     
     def _refresh(self):

@@ -1,3 +1,4 @@
+import logging
 from distutils.command.config import config
 import os
 import time
@@ -63,7 +64,8 @@ class AutoData:
         None
             AutoData will be instantiated and ready to fetch price data.
         """
-
+        #Create a tick attribute which will store latest tick
+        self.latest_tick = None
         # Merge kwargs and data_config
         if data_config is None and kwargs is not None:
             data_config = {}
@@ -317,7 +319,7 @@ class AutoData:
         self.allow_dancing_bears = allow_dancing_bears
         self.home_currency = home_currency
 
-    def common(self, instrument: str, granularity: str, count: int,
+    def _common_historic(self, instrument: str, granularity: str, count: int,
               start_time: datetime = None, end_time: datetime = None,
               order: Order = None, durationStr: str = '10 mins', **kwargs) -> pd.DataFrame:
         """
@@ -391,6 +393,19 @@ class AutoData:
         return df_simplified
 
 
+    def _common_livequotes(self, order: Order, **kwargs) -> dict:
+        """Function to retrieve price conversion data.
+        """
+        bid = self.latest_tick['bPrice']
+        ask = self.latest_tick['sPrice']
+        price = {
+            "ask": ask,
+            "bid": bid
+        }
+
+        return price
+
+
     def _common_quote_data(self, data: pd.DataFrame, pair: str, granularity: str,
                           start_time: datetime, end_time: datetime):
         """Function to retrieve price conversion data.
@@ -398,13 +413,14 @@ class AutoData:
 
         return data
 
-    def common_liveprice(self, order: Order, **kwargs) -> dict:
+    def _common_liveprice(self, order: Order, **kwargs) -> dict:
         """Returns live feed for Instrument provided
         """
         # api_url = f"http://127.0.0.1:8000/feed/live/37517"
         # response = requests.get(api_url)
         data_dict = kakfaConsumer.confluent_consumer()
         row_data= next(data_dict)
+        self.latest_tick = row_data
         data = pd.DataFrame(columns=['Open', 'High', 'Low', 'Close', 'volume', 'open_interest', 'count'])
         row_data_df = pd.DataFrame([row_data])
         row_data_df.rename(columns={'open': 'Open', 'low': 'Low', 'last': 'Close', 'high': 'High', 'ttv': 'volume', 'OI': 'open_interest', 'ltt': 'datetime', 'close': 'previous_close'}, inplace=True)
