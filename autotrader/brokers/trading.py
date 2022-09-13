@@ -768,3 +768,16 @@ class Position:
         objects as a dictionary.
         """
         return self.__dict__
+
+
+class Symbols:
+    """AutoTrader Symbol object.
+
+    Attributes
+    ----------
+    instrument : str
+        The trade instrument of the position.
+    exchange: str
+        Exchange for an instrument. This can be NSE, BSE, MCX, NFO
+
+    """
