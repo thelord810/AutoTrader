@@ -1,7 +1,15 @@
 from __future__ import annotations
+
+import json
+
 import numpy as np
 from datetime import datetime
+
+import requests
+
 from autotrader_custom_repo.AutoTrader.autotrader.brokers.broker_utils import BrokerUtils
+from autotrader_custom_repo.AutoTrader.autotrader import options
+import logging
 
 
 class Order:
@@ -770,14 +778,47 @@ class Position:
         return self.__dict__
 
 
-class Symbols:
+class Symbol:
     """AutoTrader Symbol object.
 
     Attributes
     ----------
-    instrument : str
+    instrument : any
         The trade instrument of the position.
     exchange: str
         Exchange for an instrument. This can be NSE, BSE, MCX, NFO
-
+    expiry: any
+        Expiry for which symbol token has to be fetched. Takes Values such as "CURRENT, NEAR, FAR" or Date
+    product:
+        Type of product for instrument. It can be "EQ","FI","FS","OI","OS"
     """
+
+    def __init__(
+        self,
+        instrument: any = None,
+        strategy_parameters: dict = None,
+        **kwargs,
+    ) -> Symbol:
+        self.instrument = instrument
+        self.strategy_parameters = strategy_parameters
+
+
+    def get_token(self):
+        if isinstance(self.instrument, list):
+            logging.info(f"Generating Symbol for instruments {self.instrument}")
+            tokenlist = []
+            for inst in self.instrument:
+                expiry = options.getExpiryDate(self.strategy_parameters['expiry'],self.strategy_parameters['contract'] )
+                api_url = "http://127.0.0.1:8000/tokens/kotak"
+                instrument_info = {
+                    "instrument": self.strategy_parameters['name'],
+                    "exchange": self.strategy_parameters['exchange'],
+                    "product": self.strategy_parameters['product'],
+                    "expiry": expiry,
+                    "strike": inst['strike'],
+                    "right": inst['option_type']
+                }
+                response = requests.post(api_url, json=instrument_info)
+                json_response = json.loads(response.content)
+                tokenlist.append(json_response)
+            return tokenlist

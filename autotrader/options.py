@@ -4,6 +4,7 @@ import pendulum
 from finta import TA
 from typing import Union
 from autotrader_custom_repo.AutoTrader.autotrader import expiry_calculator
+from datetime import datetime
 
 
 def getATMStrikePrice(
@@ -51,4 +52,11 @@ def isTodayOneDayBeforeWeeklyExpiryDay():
     if expiryDate - todayDate == 1:
       return True
     return False
+
+def getExpiryDate(expiryType, Contract):
+    if(expiryType == "Weekly" and Contract == "Current"):
+        expiryDate_object = expiry_calculator.getNearestWeeklyExpiryDate()
+
+    expiryDate = expiryDate_object.strftime("%d%b%y").upper()
+    return expiryDate
 

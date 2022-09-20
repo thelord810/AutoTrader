@@ -92,30 +92,49 @@ class Broker:
         order()
 
         api_url = "http://127.0.0.1:8000/placeorder"
-        response = requests.post(api_url)
         if order.direction == 1:
             transaction_type = "BUY"
         else:
             transaction_type = "SELL"
 
         #Get proper instrument token
-        
-        order_info = {
-                            "instrument": order.trade_instrument,
-                            "order_type": "N",
-                            "transaction_type": transaction_type,
-                            "quantity": 1,
-                            "price": 0,
-                            "disclosed_quantity": 0,
-                            "trigger_price": 0,
-                            "tag": "Straddle",
-                            "validity": "GFD",
-                            "variety": "REGULAR"
-                           }
-        response = requests.post(api_url, json=order_info)
-        json_response = json.loads(response.content)
-        full_account_summary = json_response['Success']
-        return full_account_summary
+        if isinstance(order.trade_instrument, list):
+            full_order_summary = []
+            for inst in order.trade_instrument:
+                order_info = {
+                                    "instrument": inst,
+                                    "order_type": "N",
+                                    "transaction_type": transaction_type,
+                                    "quantity": 1,
+                                    "price": 0,
+                                    "disclosed_quantity": 0,
+                                    "trigger_price": 0,
+                                    "tag": "Straddle",
+                                    "validity": "GFD",
+                                    "variety": "REGULAR"
+                                   }
+                response = requests.post(api_url, json=order_info)
+                json_response = json.loads(response.content)
+                order_summary = json_response['Success']
+                full_order_summary.append(order_summary)
+            return full_order_summary
+        else:
+            order_info = {
+                "instrument": order.trade_instrument,
+                "order_type": "N",
+                "transaction_type": transaction_type,
+                "quantity": 1,
+                "price": 0,
+                "disclosed_quantity": 0,
+                "trigger_price": 0,
+                "tag": "Straddle",
+                "validity": "GFD",
+                "variety": "REGULAR"
+            }
+            response = requests.post(api_url, json=order_info)
+            json_response = json.loads(response.content)
+            order_summary = json_response['Success']
+            return order_summary
         
     
     def get_orders(self, instrument: str = None, **kwargs) -> dict:
