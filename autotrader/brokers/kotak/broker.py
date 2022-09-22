@@ -102,21 +102,23 @@ class Broker:
             full_order_summary = []
             for inst in order.trade_instrument:
                 order_info = {
-                                    "instrument": inst,
-                                    "order_type": "N",
-                                    "transaction_type": transaction_type,
-                                    "quantity": 1,
-                                    "price": 0,
-                                    "disclosed_quantity": 0,
-                                    "trigger_price": 0,
-                                    "tag": "Straddle",
-                                    "validity": "GFD",
-                                    "variety": "REGULAR"
-                                   }
+                            "instrument": inst,
+                            "order_type": "N",
+                            "transaction_type": transaction_type,
+                            "quantity": 1*order.lot_size,
+                            "price": 0,
+                            "disclosed_quantity": 0,
+                            "trigger_price": 0,
+                            "tag": "Straddle",
+                            "validity": "GFD",
+                            "variety": "REGULAR"
+                           }
                 response = requests.post(api_url, json=order_info)
                 json_response = json.loads(response.content)
-                order_summary = json_response['Success']
-                full_order_summary.append(order_summary)
+                if response.status_code == 200:
+                    full_order_summary.append(json_response)
+                else:
+                    full_order_summary.append(f"Error :{json_response} while placing the order")
             return full_order_summary
         else:
             order_info = {

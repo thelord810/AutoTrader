@@ -3,6 +3,7 @@ import importlib
 import pandas as pd
 import logging
 from autotrader_custom_repo.AutoTrader.autotrader.comms import emailing
+from autotrader_custom_repo.AutoTrader.autotrader.bin import telegram_manager
 from datetime import datetime, timezone
 from autotrader_custom_repo.AutoTrader.autotrader.autodata import AutoData
 from autotrader_custom_repo.AutoTrader.autotrader.brokers.trading import Order
@@ -370,25 +371,23 @@ class AutoTraderBot:
 
             # Check for orders placed and/or scan hits
             if int(self._notify) > 0 and not self._backtest_mode:
-                for order in orders:
-                    self._broker_utils[order.exchange].write_to_order_summary(
-                        order, self._order_summary_fp
-                    )
+                telegram_bot = telegram_manager.TelegramBot("1287524606:AAGTt6NzYy9GqXIxDKtzWNwEASQhVkmre50")
+                # for order in orders:
+                #     self._broker_utils[order.broker].write_to_order_summary(
+                #         order, self._order_summary_fp
+                #     )
 
-                if (
-                    int(self._notify) > 1
-                    and self._email_params["mailing_list"] is not None
-                    and self._email_params["host_email"] is not None
-                ):
-                    if int(self._verbosity) > 0 and len(self._latest_orders) > 0:
-                        logging.info("Sending emails ...")
+                if (int(self._notify) > 0):
+                    # if int(self._verbosity) > 0 and len(self._latest_orders) > 0:
+                    #     logging.info("Sending Telegram notification ...")
 
                     for order in orders:
-                        emailing.send_order(
-                            order,
-                            self._email_params["mailing_list"],
-                            self._email_params["host_email"],
-                        )
+                        telegram_bot.send_message(order)
+                        # emailing.send_order(
+                        #     order,
+                        #     self._email_params["mailing_list"],
+                        #     self._email_params["host_email"],
+                        # )
 
                     if int(self._verbosity) > 0 and len(orders) > 0:
                         logging.info("Done.")

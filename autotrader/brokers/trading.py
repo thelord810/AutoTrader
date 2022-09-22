@@ -803,7 +803,7 @@ class Symbol:
         self.strategy_parameters = strategy_parameters
 
 
-    def get_token(self):
+    def get_token_details(self):
         if isinstance(self.instrument, list):
             logging.info(f"Generating Symbol for instruments {self.instrument}")
             tokenlist = []
