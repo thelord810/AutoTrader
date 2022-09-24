@@ -2,6 +2,7 @@ import os
 import importlib
 import pandas as pd
 import logging
+import asyncio
 from autotrader_custom_repo.AutoTrader.autotrader.comms import emailing
 from autotrader_custom_repo.AutoTrader.autotrader.bin import telegram_manager
 from datetime import datetime, timezone
@@ -230,6 +231,7 @@ class AutoTraderBot:
             "parameters": params,
             "data": self._strat_data,
             "instrument": self.instrument,
+            "broker": self._broker
         }
 
         if strategy_config["INCLUDE_BROKER"]:
@@ -382,7 +384,7 @@ class AutoTraderBot:
                     #     logging.info("Sending Telegram notification ...")
 
                     for order in orders:
-                        telegram_bot.send_message(order)
+                        asyncio.run(telegram_bot.send_message(f"Order placed for {order.trade_instrument}"))
                         # emailing.send_order(
                         #     order,
                         #     self._email_params["mailing_list"],

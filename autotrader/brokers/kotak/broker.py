@@ -298,7 +298,7 @@ class Broker:
         # return {}
     
     
-    def get_positions(self, instrument: str = None, **kwargs) -> dict:
+    def get_positions(self, instrument: str = None, type: str = "OPEN", **kwargs) -> dict:
         """Gets the current positions open on the account.
         
         Parameters
@@ -332,8 +332,11 @@ class Broker:
             existing_pos.portfolio_items.append(portfolio_item)
         
         self._check_connection()
-        
-        all_portfolio_items = self.ib.portfolio()
+
+        api_url = f"http://127.0.0.1:8000/{type}"
+        response = requests.get(api_url)
+        all_portfolio_items = json.loads(response.content)
+
         open_positions = {}
         for item in all_portfolio_items:
             units = item.position
