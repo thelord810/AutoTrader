@@ -4,15 +4,18 @@ import os
 import time
 import pandas as pd
 import json
+import asyncio
 
 import v20
 import ib_insync
 import yfinance as yf
 import requests
+from multiprocessing import Process
+import threading
 from breeze_connect import BreezeConnect
 from typing import Union
 from decimal import Decimal
-from autotrader_custom_repo.AutoTrader.autotrader.brokers.trading import Order
+from autotrader_custom_repo.AutoTrader.autotrader.brokers.trading import Order, Symbol
 from datetime import datetime, timedelta, timezone
 from autotrader_custom_repo.AutoTrader.autotrader.brokers.broker_utils import OrderBook
 import sys
@@ -66,11 +69,20 @@ class AutoData:
         """
         #Create a tick attribute which will store latest tick
         self.latest_tick = None
+        self.data_dict = pd.DataFrame
         # Merge kwargs and data_config
         if data_config is None and kwargs is not None:
             data_config = {}
         for key, item in kwargs.items():
             data_config.setdefault(key, item)
+
+        #Start Kafka Consumer in separate thread
+        #process = Process(target=kakfaConsumer.confluent_consumer, args=(self.data_dict))
+        # t = threading.Thread(target=kakfaConsumer.confluent_consumer(self), name="Kafka_Consumer", daemon=True)
+        # t.start()
+        kakfaConsumer.confluent_consumer(self)
+
+        #process.start()
 
         def configure_local_feed(data_config):
             """Configures the attributes for a local data feed."""
@@ -286,38 +298,7 @@ class AutoData:
         trades = func(instrument, *args, **kwargs)
         return trades
 
-    def _oanda(
-        self,
-        instrument: str,
-        granularity: str,
-        count: int = None,
-        start_time: datetime = None,
-        end_time: datetime = None,
-    ) -> pd.DataFrame:
 
-        if broker_config is not None:
-            if broker_config['data_source'] == 'OANDA':
-                API = broker_config["API"]
-                ACCESS_TOKEN = broker_config["ACCESS_TOKEN"]
-                port = broker_config["PORT"]
-                self.api = v20.Context(hostname=API, token=ACCESS_TOKEN, port=port)
-                self.ACCOUNT_ID = broker_config["ACCOUNT_ID"]
-
-            elif broker_config['data_source'] == 'local':
-                api_url = "http://127.0.0.1:8000/tokens/icici"
-                instrument_info = {
-                    "instrument": instrument,
-                    "exchange": strategy_parameters['exchange'],
-                    "product": strategy_parameters['product'],
-                    "expiry": strategy_parameters['expiry'],
-                    "strike": strategy_parameters['strike'],
-                    "right": strategy_parameters['option_type']
-                }
-                response = requests.post(api_url, json=instrument_info)
-                json_response = json.loads(response.content)
-
-        self.allow_dancing_bears = allow_dancing_bears
-        self.home_currency = home_currency
 
     def _common_historic(self, instrument: str, granularity: str, count: int,
               start_time: datetime = None, end_time: datetime = None,
@@ -393,8 +374,8 @@ class AutoData:
         return df_simplified
 
 
-    def _common_livequotes(self, order: Order, **kwargs) -> dict:
-        """Function to retrieve price conversion data.
+    def _common_livequotes(self, order, **kwargs) -> dict:
+        """Function to retrieve live quote data for instrument
         """
         bid = self.latest_tick['bPrice']
         ask = self.latest_tick['sPrice']
@@ -413,20 +394,27 @@ class AutoData:
 
         return data
 
-    def _common_liveprice(self, order: Order, **kwargs) -> dict:
+    def _common_liveprice(self, instrument: str, instrument_token: str, **kwargs) -> dict:
         """Returns live feed for Instrument provided
         """
-        # api_url = f"http://127.0.0.1:8000/feed/live/37517"
+        while(self.data_dict.empty):
+            print("Yet to get data from thread..waiting.")
+
+        data = self.data_dict[(self.data_dict['symbol'].str.contains(str(instrument_token)))]
+
+        #Subscribe to live price instrument
+        # api_url = f"http://127.0.0.1:8000/feed/live/{instrument}"
         # response = requests.get(api_url)
-        data_dict = kakfaConsumer.confluent_consumer()
-        row_data= next(data_dict)
-        self.latest_tick = row_data
-        data = pd.DataFrame(columns=['Open', 'High', 'Low', 'Close', 'volume', 'open_interest', 'count'])
-        row_data_df = pd.DataFrame([row_data])
-        row_data_df.rename(columns={'open': 'Open', 'low': 'Low', 'last': 'Close', 'high': 'High', 'ttv': 'volume', 'OI': 'open_interest', 'ltt': 'datetime', 'close': 'previous_close'}, inplace=True)
-        row_data_df['datetime'] = pd.to_datetime(row_data_df['datetime'], format='%a %b  %d %H:%M:%S %Y', utc=True)
-        row_data_df.set_index('datetime', inplace=True)
-        data = pd.concat([data, row_data_df])
+
+        # data_dict = kakfaConsumer.confluent_consumer()
+        # row_data = next(data_dict)
+        # self.latest_tick = row_data
+        # data = pd.DataFrame(columns=['Open', 'High', 'Low', 'Close', 'volume', 'open_interest', 'count', 'symbol'])
+        # row_data_df = pd.DataFrame([row_data])
+        # row_data_df.rename(columns={'open': 'Open', 'low': 'Low', 'last': 'Close', 'high': 'High', 'ttv': 'volume', 'OI': 'open_interest', 'ltt': 'datetime', 'close': 'previous_close'}, inplace=True)
+        # row_data_df['datetime'] = pd.to_datetime(row_data_df['datetime'], format='%a %b  %d %H:%M:%S %Y', utc=True)
+        # row_data_df.set_index('datetime', inplace=True)
+        # data = pd.concat([data, row_data_df])
         return data
 
     def oanda(self, instrument: str, granularity: str, count: int = None,
@@ -604,6 +592,21 @@ class AutoData:
             accountID=self.ACCOUNT_ID, instruments=instrument
         )
         prices = response.body["prices"][0].dict()
+
+        # Unify format
+        orderbook = {}
+        for side in ["bids", "asks"]:
+            orderbook[side] = []
+            for level in prices[side]:
+                orderbook[side].append(
+                    {"price": level["price"], "size": level["liquidity"]}
+                )
+        return orderbook
+
+
+    def _common_orderbook(self, instrument, time=None, *args, **kwargs):
+        """Returns the orderbook from Specific Common datafeed."""
+        api_url = ""
 
         # Unify format
         orderbook = {}

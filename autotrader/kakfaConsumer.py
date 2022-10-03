@@ -1,8 +1,12 @@
 from confluent_kafka import DeserializingConsumer
 from confluent_kafka.schema_registry.json_schema import JSONDeserializer
 from confluent_kafka.serialization import StringDeserializer
-
+import multitasking
 import pandas as pd
+import signal
+
+# kill all tasks on ctrl-c
+signal.signal(signal.SIGINT, multitasking.killall)
 
 marketdata = pd.DataFrame(columns=['symbol', 'open', 'last', 'high', 'low', 'change', 'bPrice', 'bQty', 'sPrice', 'sQty', 'ltq', 'avgPrice', 'quotes', 'OI', 'CHNGOI', 'ttq', 'totalBuyQt', 'totalSellQ', 'ttv', 'trend', 'lowerCktLm', 'upperCktLm', 'ltt', 'close', 'exchange'])
 schema = """
@@ -121,7 +125,7 @@ schema = """
       "type": "string"
     }                                                                    
   },
-  "required": ["open", "last", "high", "low", "change", "bPrice","bQty","sPrice","sQty","ltq","avgPrice","OI","CHNGOI","ttq","totalBuyQt","totalSellQ","ttv","lowerCktLm","upperCktLm","ltt","close","product_type", "expiry_date"]
+  "required": ["open", "last", "high", "low", "change", "bPrice","bQty","sPrice","sQty","ltq","avgPrice","OI","CHNGOI","ttq","totalBuyQt","totalSellQ","ttv","lowerCktLm","upperCktLm","ltt","close","product_type", "expiry_date","symbol"]
 }
 """
 
@@ -151,7 +155,8 @@ def dict_to_data(obj, ctx):
                 close=obj['close'],
                 product_type=obj['product_type'],
                 expiry_date=obj['expiry_date'],
-                change=obj['change']
+                change=obj['change'],
+                symbol=obj['symbol']
                 )
 #
 #
@@ -209,7 +214,17 @@ def consume(consumer, timeout):
         yield message
     consumer.close()
 
-def confluent_consumer():
-    consumer.subscribe(['ticker5'])
+@multitasking.task
+def confluent_consumer(data_class):
+    consumer.subscribe(['newticker'])
+    data_class.data_dict = pd.DataFrame(columns=['Open', 'High', 'Low', 'Close', 'volume', 'open_interest', 'count', 'symbol'])
+    #data = pd.DataFrame(columns=['Open', 'High', 'Low', 'Close', 'volume', 'open_interest', 'count', 'symbol'])
     for msg in consume(consumer, 1.0):
-        yield msg.value()
+        row_data_df = pd.DataFrame([msg.value()])
+        row_data_df.rename(
+            columns={'open': 'Open', 'low': 'Low', 'last': 'Close', 'high': 'High', 'ttv': 'volume',
+                     'OI': 'open_interest',
+                     'ltt': 'datetime', 'close': 'previous_close'}, inplace=True)
+        row_data_df['datetime'] = pd.to_datetime(row_data_df['datetime'], format='%a %b  %d %H:%M:%S %Y', utc=True)
+        row_data_df.set_index('datetime', inplace=True)
+        data_class.data_dict = pd.concat([data_class.data_dict, row_data_df])

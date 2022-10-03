@@ -554,7 +554,7 @@ class Broker:
         instrument = self._trade_id_instrument[trade_ID]
         return self._open_iso_pos[instrument][trade_ID]
 
-    def get_positions(self, instrument: str = None) -> dict:
+    def get_positions(self, instrument: str = None,  **kwargs) -> dict:
         """Returns the positions held by the account, sorted by
         instrument.
 

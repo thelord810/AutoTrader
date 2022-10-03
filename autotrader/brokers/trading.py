@@ -803,7 +803,7 @@ class Symbol:
         self.strategy_parameters = strategy_parameters
 
 
-    def get_token_details(self):
+    def get_order_token_details(self):
         if isinstance(self.instrument, list):
             logging.info(f"Generating Symbol for instruments {self.instrument}")
             tokenlist = []
@@ -822,3 +822,28 @@ class Symbol:
                 json_response = json.loads(response.content)
                 tokenlist.append(json_response)
             return tokenlist
+
+    def get_data_token_details(self):
+        if isinstance(self.instrument, list):
+            logging.info(f"Generating Symbol for instruments {self.instrument}")
+            tokenlist = []
+            for inst in self.instrument:
+                expiry = options.getExpiryDate(self.strategy_parameters['expiry'],self.strategy_parameters['contract'] )
+                api_url = "http://127.0.0.1:8000/tokens/kotak"
+                instrument_info = {
+                    "instrument": self.strategy_parameters['name'],
+                    "exchange": self.strategy_parameters['exchange'],
+                    "product": self.strategy_parameters['product'],
+                    "expiry": expiry,
+                    "strike": inst['strike'],
+                    "right": inst['option_type']
+                }
+                response = requests.post(api_url, json=instrument_info)
+                json_response = json.loads(response.content)
+                tokenlist.append(json_response)
+            return tokenlist
+
+    def subscribe_websocket(self, token):
+        api_url = f"http://127.0.0.1:8000/feed/live/{token}"
+        response = requests.get(api_url)
+        return response

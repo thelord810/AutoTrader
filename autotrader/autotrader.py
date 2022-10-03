@@ -191,7 +191,7 @@ class AutoTrader:
         home_dir: str = None,
         allow_dancing_bears: bool = False,
         account_id: str = None,
-        environment: str = "paper",
+        environment: str = "live",
         show_plot: bool = False,
         jupyter_notebook: bool = False,
         mode: str = "continuous",
@@ -285,6 +285,8 @@ class AutoTrader:
         self._allow_duplicate_bars = allow_duplicate_bars
         self._account_id = account_id
         self._environment = environment
+        if (environment == "paper"):
+            self._papertrading = True
         self._show_plot = show_plot
         self._jupyter_notebook = jupyter_notebook
         self._run_mode = mode
@@ -1048,7 +1050,7 @@ class AutoTrader:
                 )
 
             # Check global config requirements
-            if sum([self._backtest_mode, self._scan_mode, self._papertrading]) == 0:
+            if sum([self._backtest_mode, self._scan_mode]) == 0:
                 # Livetrade mode
                 self._live_mode = True
                 if global_config is None:

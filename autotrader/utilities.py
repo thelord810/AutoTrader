@@ -5,6 +5,8 @@ import pickle
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
+from autotrader_custom_repo.AutoTrader.autotrader import options
+from autotrader_custom_repo.AutoTrader.autotrader.brokers import trading
 
 
 def read_yaml(file_path: str) -> dict:
@@ -1162,11 +1164,14 @@ class DataStream:
         self.portfolio = None
         self.data_path_mapper = None
         self.live_mode = None
+        self.data_df = None
+        self.trade_instrument = []
 
 
         # Unpack kwargs
         for item in kwargs:
             setattr(self, item, kwargs[item])
+
 
     def refresh(self, timestamp: datetime = None):
         """Returns up-to-date trading data for AutoBot to provide to the
@@ -1280,32 +1285,76 @@ class DataStream:
                     )
 
             else:
-                # Single instrument strategy
+                # Trading Strategies
                 granularities = self.strategy_params["granularity"].split(",")
-                data_key = granularities[0]
-                for granularity in granularities:
-                    if self.feed.lower() == "common":
-                        extra_attributes = {"exchange": self.strategy_params['exchange'],
-                                            "product": self.strategy_params['product'],
-                                            "expiry": self.strategy_params['expiry'],
-                                            "option_type": self.strategy_params['option_type'],
-                                            "strike": self.strategy_params['strike'],
-                                            "start_date": self.strategy_params['start_time'],
-                                            "end_date": self.strategy_params['end_time']
-                                            }
+                if len(granularities) > 1:
+                    data_key = granularities[0]
+                    for granularity in granularities:
+                        if self.feed.lower() == "common":
+                            extra_attributes = {"exchange": self.strategy_params['exchange'],
+                                                "product": self.strategy_params['product'],
+                                                "expiry": self.strategy_params['expiry'],
+                                                "option_type": self.strategy_params['option_type'],
+                                                "strike": self.strategy_params['strike'],
+                                                "start_date": self.strategy_params['start_time'],
+                                                "end_date": self.strategy_params['end_time']
+                                                }
 
-                        multi_data[data_key] = data_func(self.instrument, granularity=granularity,
-                                                         count=self.strategy_params['period'],
-                                                         start_time=self.data_start,
-                                                         end_time=self.data_end, **extra_attributes)
-                    else:
-                        multi_data[data_key] = data_func(self.instrument, granularity=granularity,
-                                                         count=self.strategy_params['period'],
-                                                         start_time=self.data_start,
-                                                         end_time=self.data_end)
+                            multi_data[data_key] = data_func(self.instrument, granularity=granularity,
+                                                             count=self.strategy_params['period'],
+                                                             start_time=self.data_start,
+                                                             end_time=self.data_end, **extra_attributes)
+                        else:
+                            multi_data[data_key] = data_func(self.instrument, granularity=granularity,
+                                                             count=self.strategy_params['period'],
+                                                             start_time=self.data_start,
+                                                             end_time=self.data_end)
+                elif self.strategy_params["product"] == "OI" and self.strategy_params["strike"] == "Dynamic":
+                    expiry = options.getExpiryDateIcici(self.strategy_params['expiry'], self.strategy_params['contract'])
+                    # Get strike to sell for call
+                    call_strike = options.getStrikeByPrice(self.strategy_params['iciciCode'], self.strategy_params['option_price'],
+                                                           "call", expiry)
+
+                    # Get strike to sell for put
+                    put_strike = options.getStrikeByPrice(self.strategy_params['iciciCode'], self.strategy_params['option_price'], "put",
+                                                          expiry)
+
+                    # Set Instruments based on ATM Strike
+                    if (self.strategy_params['option_type'] == "both"):
+                        instrument_list = [{"strike": call_strike, "option_type": "CE"},
+                                           {"strike": put_strike, "option_type": "PE"}]
+                        self.symbol = trading.Symbol(instrument_list, self.strategy_params)
+
+                    self.trade_instrument_details = self.symbol.get_data_token_details()
+
+                    for instrument in self.trade_instrument_details:
+                        instrument_token = instrument.get('token')
+                        self.trade_instrument.append(instrument_token)
+                        # Subscribe to data feed for these trade tokens
+                        self.symbol.subscribe_websocket(instrument.get('exchangeToken'))
+                        if self.feed.lower() == "common":
+                            extra_attributes = {"exchange": self.strategy_params['exchange'],
+                                                "product": self.strategy_params['product'],
+                                                "expiry": self.strategy_params['expiry'],
+                                                "option_type": self.strategy_params['option_type'],
+                                                "strike": self.strategy_params['strike'],
+                                                "start_date": self.strategy_params['start_time'],
+                                                "end_date": self.strategy_params['end_time']
+                                                }
+
+                            multi_data[instrument_token] = data_func(self.instrument, instrument_token, granularity=granularities[0],
+                                                             count=self.strategy_params['period'],
+                                                             start_time=self.data_start,
+                                                             end_time=self.data_end, **extra_attributes)
+                        else:
+                            multi_data[instrument_token] = data_func(self.instrument, instrument_token, granularity=granularities[0],
+                                                             count=self.strategy_params['period'],
+                                                             start_time=self.data_start,
+                                                             end_time=self.data_end)
+
 
             # Take data as first element of multi-data
-            data = multi_data[data_key]
+            data = multi_data[instrument_token]
 
             if len(multi_data) == 1:
                 multi_data = None
