@@ -2,27 +2,24 @@ import logging
 from distutils.command.config import config
 import os
 import time
+import redis
+import pyarrow as pa
+import pandas
 import pandas as pd
 import json
-import asyncio
-
-import v20
-import ib_insync
-import yfinance as yf
 import requests
-from multiprocessing import Process
-import threading
-from breeze_connect import BreezeConnect
+import time
+import multitasking
+import signal
 from typing import Union
 from decimal import Decimal
-from autotrader_custom_repo.AutoTrader.autotrader.brokers.trading import Order, Symbol
+from autotrader_custom_repo.AutoTrader.autotrader.brokers.trading import Order
 from datetime import datetime, timedelta, timezone
 from autotrader_custom_repo.AutoTrader.autotrader.brokers.broker_utils import OrderBook
-import sys
-#from autotrader.brokers.ib.utils import Utils as IB_Utils
-from autotrader_custom_repo.AutoTrader.autotrader.brokers import kotak
+import pickle, zlib
 from autotrader_custom_repo.AutoTrader.autotrader import kakfaConsumer
 
+data_df = pandas.DataFrame
 
 class AutoData:
     """AutoData class to retrieve price data.
@@ -67,9 +64,20 @@ class AutoData:
         None
             AutoData will be instantiated and ready to fetch price data.
         """
+        # kill all tasks on ctrl-c
+        signal.signal(signal.SIGINT, multitasking.killall)
+
+        #Create a redis connection pool for data storage
+        pool = redis.ConnectionPool(host='localhost', port=6379, db=0)
+        self.r = redis.Redis(connection_pool=pool)
+        self.context = pa.default_serialization_context()
+
         #Create a tick attribute which will store latest tick
         self.latest_tick = None
-        self.data_dict = pd.DataFrame
+        self.data_dict = pd.DataFrame(
+            columns=['Open', 'High', 'Low', 'Close', 'volume', 'open_interest', 'count', 'symbol'])
+        global data_df
+        data_df = self.data_dict
         # Merge kwargs and data_config
         if data_config is None and kwargs is not None:
             data_config = {}
@@ -80,9 +88,12 @@ class AutoData:
         #process = Process(target=kakfaConsumer.confluent_consumer, args=(self.data_dict))
         # t = threading.Thread(target=kakfaConsumer.confluent_consumer(self), name="Kafka_Consumer", daemon=True)
         # t.start()
-        kakfaConsumer.confluent_consumer(self)
+        # self.kafka_consumer = kakfaConsumer.KafkaConsumer()
+        # #kick off kakfa thread
+        # self.confluent_consumer()
+        # time.sleep(5)
+        # #process.start()
 
-        #process.start()
 
         def configure_local_feed(data_config):
             """Configures the attributes for a local data feed."""
@@ -239,6 +250,21 @@ class AutoData:
         feed_str = self._ccxt_exchange if self._feed == "ccxt" else self._feed
         return f"AutoData ({feed_str} feed)"
 
+    # @multitasking.task
+    # def confluent_consumer(self):
+    #     self.kafka_consumer.consumer.subscribe(['newticker'])
+    #     for msg in self.kafka_consumer.consume(self.kafka_consumer.consumer, 1.0):
+    #         row_data_df = pd.DataFrame([msg.value()])
+    #         row_data_df.rename(
+    #             columns={'open': 'Open', 'low': 'Low', 'last': 'Close', 'high': 'High', 'ttv': 'volume',
+    #                      'OI': 'open_interest',
+    #                      'ltt': 'datetime', 'close': 'previous_close'}, inplace=True)
+    #         row_data_df['datetime'] = pd.to_datetime(row_data_df['datetime'], format='%a %b  %d %H:%M:%S %Y',
+    #                                                  utc=True)
+    #         row_data_df.set_index('datetime', inplace=True)
+    #         self.data_dict = pd.concat([self.data_dict, row_data_df])
+    #         self.r.set("key", self.context.serialize(self.data_dict).to_buffer().to_pybytes())
+
     def fetch(
         self,
         instrument: str,
@@ -377,12 +403,22 @@ class AutoData:
     def _common_livequotes(self, order, **kwargs) -> dict:
         """Function to retrieve live quote data for instrument
         """
-        bid = self.latest_tick['bPrice']
-        ask = self.latest_tick['sPrice']
-        price = {
-            "ask": ask,
-            "bid": bid
-        }
+        instruments = order.trade_instrument
+        complete_data = self.data_dict
+        #For multi trade instrument strategies
+        price = []
+        if(len(instruments) > 1):
+            for instrument in instruments:
+                instrument_token = instrument.get('exchangeToken')
+                data = complete_data[complete_data.symbol == instrument_token]
+
+            bid = data.iloc[-1].bPrice
+            ask = data.iloc[-1].sPrice
+            price.append({
+                "instrument": instrument_token,
+                "ask": ask,
+                "bid": bid
+            })
 
         return price
 
@@ -397,11 +433,11 @@ class AutoData:
     def _common_liveprice(self, instrument: str, instrument_token: str, **kwargs) -> dict:
         """Returns live feed for Instrument provided
         """
-        while(self.data_dict.empty):
-            print("Yet to get data from thread..waiting.")
+        instrument_token = f"4.1!{instrument_token}"
+         # Get
+        complete_data = pickle.loads(zlib.decompress(self.r.get("key")))
 
-        data = self.data_dict[(self.data_dict['symbol'].str.contains(str(instrument_token)))]
-
+        data = complete_data[complete_data.symbol == instrument_token]
         #Subscribe to live price instrument
         # api_url = f"http://127.0.0.1:8000/feed/live/{instrument}"
         # response = requests.get(api_url)

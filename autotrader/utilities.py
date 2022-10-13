@@ -5,8 +5,6 @@ import pickle
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
-from autotrader_custom_repo.AutoTrader.autotrader import options
-from autotrader_custom_repo.AutoTrader.autotrader.brokers import trading
 
 
 def read_yaml(file_path: str) -> dict:
@@ -1107,7 +1105,9 @@ class DataStream:
     Attributes
     ----------
     instrument : str
-        The instrument being traded.
+        The instrument being watched.
+    trade_instrument : str
+        The instrument(s) being traded.
     feed : str
         The data feed.
     data_filepaths : str|dict
@@ -1153,6 +1153,7 @@ class DataStream:
     def __init__(self, **kwargs):
         # Attributes
         self.instrument = None
+        self.trade_instruments = None
         self.feed = None
         self.data_filepaths = None
         self.quote_data_file = None
@@ -1165,8 +1166,6 @@ class DataStream:
         self.data_path_mapper = None
         self.live_mode = None
         self.data_df = None
-        self.trade_instrument = []
-
 
         # Unpack kwargs
         for item in kwargs:
@@ -1310,28 +1309,10 @@ class DataStream:
                                                              start_time=self.data_start,
                                                              end_time=self.data_end)
                 elif self.strategy_params["product"] == "OI" and self.strategy_params["strike"] == "Dynamic":
-                    expiry = options.getExpiryDateIcici(self.strategy_params['expiry'], self.strategy_params['contract'])
-                    # Get strike to sell for call
-                    call_strike = options.getStrikeByPrice(self.strategy_params['iciciCode'], self.strategy_params['option_price'],
-                                                           "call", expiry)
-
-                    # Get strike to sell for put
-                    put_strike = options.getStrikeByPrice(self.strategy_params['iciciCode'], self.strategy_params['option_price'], "put",
-                                                          expiry)
-
-                    # Set Instruments based on ATM Strike
-                    if (self.strategy_params['option_type'] == "both"):
-                        instrument_list = [{"strike": call_strike, "option_type": "CE"},
-                                           {"strike": put_strike, "option_type": "PE"}]
-                        self.symbol = trading.Symbol(instrument_list, self.strategy_params)
-
-                    self.trade_instrument_details = self.symbol.get_data_token_details()
-
-                    for instrument in self.trade_instrument_details:
+                    for instrument in self.trade_instruments:
                         instrument_token = instrument.get('token')
-                        self.trade_instrument.append(instrument_token)
                         # Subscribe to data feed for these trade tokens
-                        self.symbol.subscribe_websocket(instrument.get('exchangeToken'))
+                        exchange_token = instrument.get('exchangeToken')
                         if self.feed.lower() == "common":
                             extra_attributes = {"exchange": self.strategy_params['exchange'],
                                                 "product": self.strategy_params['product'],
@@ -1342,12 +1323,12 @@ class DataStream:
                                                 "end_date": self.strategy_params['end_time']
                                                 }
 
-                            multi_data[instrument_token] = data_func(self.instrument, instrument_token, granularity=granularities[0],
+                            multi_data[instrument_token] = data_func(self.instrument, str(exchange_token), granularity=granularities[0],
                                                              count=self.strategy_params['period'],
                                                              start_time=self.data_start,
                                                              end_time=self.data_end, **extra_attributes)
                         else:
-                            multi_data[instrument_token] = data_func(self.instrument, instrument_token, granularity=granularities[0],
+                            multi_data[instrument_token] = data_func(self.instrument, str(exchange_token), granularity=granularities[0],
                                                              count=self.strategy_params['period'],
                                                              start_time=self.data_start,
                                                              end_time=self.data_end)

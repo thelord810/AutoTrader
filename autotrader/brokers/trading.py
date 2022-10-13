@@ -803,7 +803,7 @@ class Symbol:
         self.strategy_parameters = strategy_parameters
 
 
-    def get_order_token_details(self):
+    def get_order_token_details(self, order_instruments = None):
         if isinstance(self.instrument, list):
             logging.info(f"Generating Symbol for instruments {self.instrument}")
             tokenlist = []
@@ -823,27 +823,40 @@ class Symbol:
                 tokenlist.append(json_response)
             return tokenlist
 
-    def get_data_token_details(self):
-        if isinstance(self.instrument, list):
-            logging.info(f"Generating Symbol for instruments {self.instrument}")
-            tokenlist = []
-            for inst in self.instrument:
-                expiry = options.getExpiryDate(self.strategy_parameters['expiry'],self.strategy_parameters['contract'] )
-                api_url = "http://127.0.0.1:8000/tokens/kotak"
-                instrument_info = {
-                    "instrument": self.strategy_parameters['name'],
-                    "exchange": self.strategy_parameters['exchange'],
-                    "product": self.strategy_parameters['product'],
-                    "expiry": expiry,
-                    "strike": inst['strike'],
-                    "right": inst['option_type']
-                }
-                response = requests.post(api_url, json=instrument_info)
-                json_response = json.loads(response.content)
-                tokenlist.append(json_response)
-            return tokenlist
+    def get_data_token_details(self, token):
+
+        api_url = f"http://127.0.0.1:8000/exchangeTokens/{token}"
+
+        response = requests.get(api_url)
+        exchange_token = json.loads(response.content)
+        return exchange_token
 
     def subscribe_websocket(self, token):
         api_url = f"http://127.0.0.1:8000/feed/live/{token}"
         response = requests.get(api_url)
         return response
+
+
+    def find_trade_instruments(self):
+        expiry = options.getExpiryDateIcici(self.strategy_parameters['expiry'], self.strategy_parameters['contract'])
+        # Get strike to sell for call
+        call_strike = options.getStrikeByPrice(self.strategy_parameters['iciciCode'], self.strategy_parameters['option_price'],
+                                               "call", expiry)
+
+        # Get strike to sell for put
+        put_strike = options.getStrikeByPrice(self.strategy_parameters['iciciCode'], self.strategy_parameters['option_price'],
+                                              "put",
+                                              expiry)
+
+        # Set Instruments based on ATM Strike
+        if (self.strategy_parameters['option_type'] == "both"):
+            self.instrument = [{"strike": call_strike, "option_type": "CE"},
+                               {"strike": put_strike, "option_type": "PE"}]
+
+
+        trade_instrument_details = self.get_order_token_details()
+
+        for instrument in trade_instrument_details:
+            self.subscribe_websocket(instrument.get('exchangeToken'))
+
+        return trade_instrument_details

@@ -7,7 +7,7 @@ from autotrader_custom_repo.AutoTrader.autotrader.comms import emailing
 from autotrader_custom_repo.AutoTrader.autotrader.bin import telegram_manager
 from datetime import datetime, timezone
 from autotrader_custom_repo.AutoTrader.autotrader.autodata import AutoData
-from autotrader_custom_repo.AutoTrader.autotrader.brokers.trading import Order
+from autotrader_custom_repo.AutoTrader.autotrader.brokers.trading import Order, Symbol
 from autotrader_custom_repo.AutoTrader.autotrader.utilities import read_yaml, get_data_config, TradeAnalysis
 
 
@@ -84,37 +84,6 @@ class AutoTraderBot:
         self.instrument = instrument
         self._broker = broker
 
-        # Check for muliple brokers and construct mapper
-        if self._multiple_brokers:
-            # Trading across multiple venues
-            self._brokers = self._broker
-            self._instrument_to_broker = {}
-            for (
-                broker_name,
-                tradeable_instruments,
-            ) in self._virtual_tradeable_instruments.items():
-                for instrument in tradeable_instruments:
-                    if instrument in self._instrument_to_broker:
-                        # Instrument is already in mapper, add broker
-                        self._instrument_to_broker[instrument].append(
-                            self._brokers[broker_name]
-                        )
-                    else:
-                        # New instrument, add broker
-                        self._instrument_to_broker[instrument] = [
-                            self._brokers[broker_name]
-                        ]
-
-        else:
-            # Trading through a single broker
-            self._brokers = {self._broker_name: self._broker}
-
-            # Map instruments to broker
-            self._instrument_to_broker = {}
-            instruments = [instrument] if isinstance(instrument, str) else instrument
-            for instrument in instruments:
-                self._instrument_to_broker[instrument] = [self._broker]
-
         # Unpack strategy parameters and assign to strategy_params
         logging.info(f"Unpacking Strategy from config {strategy_dict}")
         strategy_config = strategy_dict["config"]
@@ -156,6 +125,43 @@ class AutoTraderBot:
             else False
         )
         self._strategy_params = strategy_params
+
+        #Initiate Symbol to get trade instruments
+        self._symbol = Symbol(strategy_parameters = strategy_params)
+
+        #Get trade instruments
+        self.trade_instruments = self._symbol.find_trade_instruments()
+
+        # Check for muliple brokers and construct mapper
+        if self._multiple_brokers:
+            # Trading across multiple venues
+            self._brokers = self._broker
+            self._instrument_to_broker = {}
+            for (
+                broker_name,
+                tradeable_instruments,
+            ) in self._virtual_tradeable_instruments.items():
+                for instrument in tradeable_instruments:
+                    if instrument in self._instrument_to_broker:
+                        # Instrument is already in mapper, add broker
+                        self._instrument_to_broker[instrument].append(
+                            self._brokers[broker_name]
+                        )
+                    else:
+                        # New instrument, add broker
+                        self._instrument_to_broker[instrument] = [
+                            self._brokers[broker_name]
+                        ]
+
+        else:
+            # Trading through a single broker
+            self._brokers = {self._broker_name: self._broker}
+
+            # Map instruments to broker
+            self._instrument_to_broker = {}
+            instruments = [instrument] if isinstance(instrument, str) else instrument
+            for instrument in self.trade_instruments:
+                self._instrument_to_broker[instrument.get('token')] = [self._broker]
 
         # Import Strategy
         if strategy_dict["class"] is not None:
@@ -215,6 +221,7 @@ class AutoTraderBot:
             "data_start": self._data_start,
             "data_end": self._data_end,
             "instrument": self.instrument,
+            "trade_instruments": self.trade_instruments,
             "feed": self._feed,
             "portfolio": portfolio,
             "data_path_mapper": self._data_path_mapper,
@@ -231,6 +238,7 @@ class AutoTraderBot:
             "parameters": params,
             "data": self._strat_data,
             "instrument": self.instrument,
+            "trade_instruments": self.trade_instruments,
             "broker": self._broker
         }
 
@@ -504,7 +512,7 @@ class AutoTraderBot:
         if auxdata is not None:
             strat_data = {"base": strat_data, "aux": auxdata}
 
-        logging.info(strat_data.to_dict('records'))
+        #logging.info(strat_data.to_dict('records'))
         # Assign data attributes to bot
         self._strat_data = strat_data
         self.data = data
