@@ -75,9 +75,8 @@ class AutoData:
         #Create a tick attribute which will store latest tick
         self.latest_tick = None
         self.data_dict = pd.DataFrame(
-            columns=['Open', 'High', 'Low', 'Close', 'volume', 'open_interest', 'count', 'symbol'])
-        global data_df
-        data_df = self.data_dict
+            columns=['symbol', 'open', 'last', 'high', 'low', 'change', 'bPrice', 'bQty', 'sPrice', 'sQty', 'ltq', 'avgPrice', 'quotes', 'OI', 'CHNGOI', 'ttq', 'totalBuyQt', 'totalSellQ', 'ttv', 'trend', 'lowerCktLm', 'upperCktLm', 'ltt', 'close', 'exchange', 'product_type', 'expiry_date', 'stock_name', 'strike_price', 'right'])
+
         # Merge kwargs and data_config
         if data_config is None and kwargs is not None:
             data_config = {}
@@ -410,6 +409,7 @@ class AutoData:
         if(len(instruments) > 1):
             for instrument in instruments:
                 instrument_token = instrument.get('exchangeToken')
+                instrument_token = f"4.1!{instrument_token}"
                 data = complete_data[complete_data.symbol == instrument_token]
 
             bid = data.iloc[-1].bPrice
@@ -437,7 +437,7 @@ class AutoData:
          # Get
         complete_data = pickle.loads(zlib.decompress(self.r.get("key")))
 
-        data = complete_data[complete_data.symbol == instrument_token]
+        self.data_dict = complete_data[complete_data.symbol == instrument_token]
         #Subscribe to live price instrument
         # api_url = f"http://127.0.0.1:8000/feed/live/{instrument}"
         # response = requests.get(api_url)
@@ -451,7 +451,7 @@ class AutoData:
         # row_data_df['datetime'] = pd.to_datetime(row_data_df['datetime'], format='%a %b  %d %H:%M:%S %Y', utc=True)
         # row_data_df.set_index('datetime', inplace=True)
         # data = pd.concat([data, row_data_df])
-        return data
+        return self.data_dict
 
     def oanda(self, instrument: str, granularity: str, count: int = None,
               start_time: datetime = None, end_time: datetime = None) -> pd.DataFrame:

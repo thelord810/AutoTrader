@@ -400,7 +400,12 @@ class Broker:
         # Add order to pending_orders dict
         order.status = "pending"
         try:
-            self._pending_orders[order.instrument][order.id] = order
+            if isinstance(order.trade_instrument, list):
+                for instrument in order.trade_instrument:
+                    try:
+                        self._pending_orders[instrument.get('token')][order.id] = order
+                    except KeyError:
+                        self._pending_orders[instrument.get('token')] = {order.id: order}
         except KeyError:
             # Instrument hasn't been in pending orders yet
             self._pending_orders[order.instrument] = {order.id: order}
@@ -532,7 +537,7 @@ class Broker:
             # Specific instrument(s) requested
             try:
                 pos = all_iso_pos[instrument]
-            except KeyError:
+            except KeyError or TypeError:
                 # No isolated positions for this instrument
                 pos = {}
         else:
@@ -574,8 +579,10 @@ class Broker:
         net_position: refers to the number of units held in the position.
 
         """
-        if instrument:
+        if isinstance(instrument, list):
             # instrument provided
+            instruments = instrument
+        elif instrument:
             instruments = [instrument]
         else:
             # No specific instrument requested, use all
@@ -584,7 +591,7 @@ class Broker:
         open_positions = {}
         for instrument in instruments:
             # First get open isolated positions
-            open_iso_positions = self.get_isolated_positions(instrument)
+            open_iso_positions = self.get_isolated_positions(instrument.get('token'))
             if len(open_iso_positions) > 0:
                 long_units = 0
                 long_PL = 0
@@ -1223,13 +1230,20 @@ class Broker:
     ) -> None:
         """Moves an order from the from_dict to the to_dict."""
         order.status = new_status
-        from_dict = getattr(self, from_dict)[order.instrument]
+        if isinstance(order.trade_instrument,list):
+            if(len(order.trade_instrument) > 1):
+                for instrument in order.trade_instrument:
+                    from_dict = getattr(self, from_dict)[instrument.get('token')]
+            else:
+                from_dict = getattr(self, from_dict)[order.instrument[0].get('token')]
+        else:
+            from_dict = getattr(self, from_dict)[order.trade_instrument]
         to_dict = getattr(self, to_dict)
         popped_item = from_dict.pop(order.id)
         try:
-            to_dict[order.instrument][order.id] = popped_item
+            to_dict[order.trade_instrument][order.id] = popped_item
         except KeyError:
-            to_dict[order.instrument] = {order.id: popped_item}
+            to_dict[order.trade_instrument] = {order.id: popped_item}
 
     def _move_isolated_position(
         self,

@@ -341,7 +341,8 @@ class AutoTraderBot:
                 else:
                     # Bot is trading
                     try:
-                        order_time = current_bars[order.instrument].name
+                        for instrument in order.trade_instrument:
+                            order_time = current_bars[instrument.get('token')].name
                     except:
                         if self._feed == "none":
                             order_time = datetime.now()
@@ -675,14 +676,14 @@ class AutoTraderBot:
 
                 if order.order_type not in ["close", "reduce", "modify"]:
                     if order.direction < 0:
-                        order_price = last_price["bid"]
+                        order_price = last_price[0].get('bid')
                         HCF = None
                     else:
-                        order_price = last_price["ask"]
+                        order_price = last_price[0].get('ask')
                         HCF = None
                 else:
                     # Close, reduce or modify order type, provide dummy inputs
-                    order_price = last_price["ask"]
+                    order_price = last_price[0].get('ask')
                     HCF = None
 
             else:
