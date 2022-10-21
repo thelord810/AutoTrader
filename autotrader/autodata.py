@@ -64,8 +64,8 @@ class AutoData:
         None
             AutoData will be instantiated and ready to fetch price data.
         """
-        # kill all tasks on ctrl-c
-        signal.signal(signal.SIGINT, multitasking.killall)
+        # # kill all tasks on ctrl-c
+        # signal.signal(signal.SIGINT, multitasking.killall)
 
         #Create a redis connection pool for data storage
         pool = redis.ConnectionPool(host='localhost', port=6379, db=0)
@@ -435,6 +435,7 @@ class AutoData:
         """
         instrument_token = f"4.1!{instrument_token}"
          # Get
+        time.sleep(2)
         complete_data = pickle.loads(zlib.decompress(self.r.get("key")))
 
         self.data_dict = complete_data[complete_data.symbol == instrument_token]
@@ -447,8 +448,8 @@ class AutoData:
         # self.latest_tick = row_data
         # data = pd.DataFrame(columns=['Open', 'High', 'Low', 'Close', 'volume', 'open_interest', 'count', 'symbol'])
         # row_data_df = pd.DataFrame([row_data])
-        # row_data_df.rename(columns={'open': 'Open', 'low': 'Low', 'last': 'Close', 'high': 'High', 'ttv': 'volume', 'OI': 'open_interest', 'ltt': 'datetime', 'close': 'previous_close'}, inplace=True)
-        # row_data_df['datetime'] = pd.to_datetime(row_data_df['datetime'], format='%a %b  %d %H:%M:%S %Y', utc=True)
+        self.data_dict.rename(columns={'open': 'Open', 'low': 'Low', 'last': 'Close', 'high': 'High', 'ttv': 'volume', 'OI': 'open_interest', 'ltt': 'datetime', 'close': 'previous_close'}, inplace=True)
+        self.data_dict['datetime'] = pd.to_datetime(self.data_dict['datetime'], format='%a %b  %d %H:%M:%S %Y', utc=True)
         # row_data_df.set_index('datetime', inplace=True)
         # data = pd.concat([data, row_data_df])
         return self.data_dict
