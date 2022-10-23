@@ -70,7 +70,7 @@ class AutoData:
         #Create a redis connection pool for data storage
         pool = redis.ConnectionPool(host='localhost', port=6379, db=0)
         self.r = redis.Redis(connection_pool=pool)
-        self.context = pa.default_serialization_context()
+        #self.context = pa.default_serialization_context()
 
         #Create a tick attribute which will store latest tick
         self.latest_tick = None
@@ -402,23 +402,23 @@ class AutoData:
     def _common_livequotes(self, order, **kwargs) -> dict:
         """Function to retrieve live quote data for instrument
         """
-        instruments = order.trade_instrument
+        instrument = order.instrument
         complete_data = self.data_dict
         #For multi trade instrument strategies
         price = []
-        if(len(instruments) > 1):
-            for instrument in instruments:
-                instrument_token = instrument.get('exchangeToken')
-                instrument_token = f"4.1!{instrument_token}"
-                data = complete_data[complete_data.symbol == instrument_token]
+        # if(len(instruments) > 1):
+        #     for instrument in instruments:
+        instrument_token = instrument.get('exchangeToken')
+        instrument_token = f"4.1!{instrument_token}"
+        data = complete_data[complete_data.symbol == instrument_token]
 
-            bid = data.iloc[-1].bPrice
-            ask = data.iloc[-1].sPrice
-            price.append({
-                "instrument": instrument_token,
-                "ask": ask,
-                "bid": bid
-            })
+        bid = data.iloc[-1].bPrice
+        ask = data.iloc[-1].sPrice
+        price.append({
+            "instrument": instrument_token,
+            "ask": ask,
+            "bid": bid
+        })
 
         return price
 
@@ -436,9 +436,11 @@ class AutoData:
         instrument_token = f"4.1!{instrument_token}"
          # Get
         time.sleep(2)
-        complete_data = pickle.loads(zlib.decompress(self.r.get("key")))
+        #complete_data = pickle.loads(zlib.decompress(self.r.get("key")))
+        complete_data = pd.read_csv("daily_data01.csv")
 
-        self.data_dict = complete_data[complete_data.symbol == instrument_token]
+        self.data_dict = complete_data
+        symbol_data = complete_data[complete_data.symbol == instrument_token]
         #Subscribe to live price instrument
         # api_url = f"http://127.0.0.1:8000/feed/live/{instrument}"
         # response = requests.get(api_url)
@@ -448,11 +450,11 @@ class AutoData:
         # self.latest_tick = row_data
         # data = pd.DataFrame(columns=['Open', 'High', 'Low', 'Close', 'volume', 'open_interest', 'count', 'symbol'])
         # row_data_df = pd.DataFrame([row_data])
-        self.data_dict.rename(columns={'open': 'Open', 'low': 'Low', 'last': 'Close', 'high': 'High', 'ttv': 'volume', 'OI': 'open_interest', 'ltt': 'datetime', 'close': 'previous_close'}, inplace=True)
-        self.data_dict['datetime'] = pd.to_datetime(self.data_dict['datetime'], format='%a %b  %d %H:%M:%S %Y', utc=True)
+        data = symbol_data.rename(columns={'open': 'Open', 'low': 'Low', 'last': 'Close', 'high': 'High', 'ttv': 'volume', 'OI': 'open_interest', 'ltt': 'datetime', 'close': 'previous_close'})
+        data['datetime'] = pd.to_datetime(data['datetime'], format='%a %b  %d %H:%M:%S %Y', utc=True)
         # row_data_df.set_index('datetime', inplace=True)
         # data = pd.concat([data, row_data_df])
-        return self.data_dict
+        return data
 
     def oanda(self, instrument: str, granularity: str, count: int = None,
               start_time: datetime = None, end_time: datetime = None) -> pd.DataFrame:
@@ -643,7 +645,7 @@ class AutoData:
 
     def _common_orderbook(self, instrument, time=None, *args, **kwargs):
         """Returns the orderbook from Specific Common datafeed."""
-        api_url = ""
+        api_url = "http://127.0.0.1:8000/quotes"
 
         # Unify format
         orderbook = {}

@@ -10,6 +10,9 @@ import requests
 from autotrader_custom_repo.AutoTrader.autotrader.brokers.broker_utils import BrokerUtils
 from autotrader_custom_repo.AutoTrader.autotrader import options
 import logging
+import pytz
+from pgcopy import CopyManager
+import config, psycopg2
 
 
 class Order:
@@ -92,6 +95,18 @@ class Order:
         **kwargs,
     ) -> Order:
 
+        # establish database connection
+        self.conn = psycopg2.connect(database="Orders",
+                                host="localhost",
+                                user="postgres",
+                                password="password",
+                                port=5432)
+
+        # column names in the database (pgcopy needs it as a parameter)
+        self.COLUMNS = ('time', 'symbol', 'order_type', 'size', 'order_price', 'order_time', 'stop_loss', 'stop_type', 'direction')
+
+        # create a copy manager instance
+        self.mgr = CopyManager(self.conn, 'order', self.COLUMNS)
         # Required attributes
         self.instrument = instrument
         self.direction = direction
@@ -235,7 +250,9 @@ class Order:
             Calling an Order will ensure all information is present.
         """
         self.order_price = order_price if order_price else self.order_price
-        self.order_time = order_time if order_time else self.order_time
+        utc = pytz.UTC
+        self.order_time = utc.localize(datetime.now())
+        #self.order_time = order_time if order_time else self.order_time
         self.HCF = HCF if HCF is not None else self.HCF
 
         # Assign precisions
@@ -816,12 +833,33 @@ class Symbol:
                     "product": self.strategy_parameters['product'],
                     "expiry": expiry,
                     "strike": inst['strike'],
-                    "right": inst['option_type']
+                    "right": inst['option_type'],
+                    "instrument_code": self.strategy_parameters['iciciCode']
                 }
                 response = requests.post(api_url, json=instrument_info)
                 json_response = json.loads(response.content)
+                json_response.update(instrument_info)
                 tokenlist.append(json_response)
             return tokenlist
+
+    def get_orderbook(self, token):
+        if isinstance(self.instrument, list):
+            logging.info(f"Getting Orderbook for instruments {self.instrument}")
+
+            expiry = options.getExpiryDate(self.strategy_parameters['expiry'],self.strategy_parameters['contract'] )
+            api_url = "http://127.0.0.1:8000/quotes"
+            instrument_info = {
+                "instrument": self.strategy_parameters['name'],
+                "exchange": self.strategy_parameters['exchange'],
+                "product": self.strategy_parameters['product'],
+                "expiry": expiry,
+                "strike": inst['strike'],
+                "right": inst['option_type']
+            }
+            response = requests.post(api_url, json=instrument_info)
+            json_response = json.loads(response.content)
+
+        return json_response
 
     def get_data_token_details(self, token):
 

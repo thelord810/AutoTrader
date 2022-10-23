@@ -341,8 +341,7 @@ class AutoTraderBot:
                 else:
                     # Bot is trading
                     try:
-                        for instrument in order.trade_instrument:
-                            order_time = current_bars[instrument.get('token')].name
+                        order_time = current_bars[order.instrument.get('token')].datetime
                     except:
                         if self._feed == "none":
                             order_time = datetime.now()
@@ -393,7 +392,7 @@ class AutoTraderBot:
                     #     logging.info("Sending Telegram notification ...")
 
                     for order in orders:
-                        asyncio.run(telegram_bot.send_message(f"Order placed for {order.trade_instrument}"))
+                        asyncio.run(telegram_bot.send_message(f"Order placed for {order.instrument['instrument']} {order.instrument['strike']} {order.instrument['right']} at Price {order.order_price}"))
                         # emailing.send_order(
                         #     order,
                         #     self._email_params["mailing_list"],
@@ -499,9 +498,14 @@ class AutoTraderBot:
         logging.info(f"Updated data for {timestamp}")
         data, multi_data, quote_data, auxdata = self.Stream.refresh(timestamp=timestamp)
 
-        # Check data returned is valid
-        if self._feed != "none" and len(data) == 0:
-            raise Exception("Error retrieving data.")
+        # # Check data returned is valid
+        # if self._feed != "none" and len(data) == 0:
+        #     raise Exception("Error retrieving data.")
+
+        #Update instrument type in trade instruments as per Websocket data.
+        # This has to be done due to disparity in token data and websocket data. To be raised as case to Icici and kotak
+        # for instrument in self.trade_instruments:
+        #     instrument['product'] = data.iloc[-1].product_type
 
         # Data assignment
         if multi_data is None:

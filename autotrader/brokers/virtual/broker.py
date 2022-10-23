@@ -6,6 +6,10 @@ import pandas as pd
 from decimal import Decimal
 from typing import Callable
 from datetime import date, datetime
+import pytz
+import logging
+import requests, json
+from autotrader_custom_repo.AutoTrader.autotrader import options
 from autotrader_custom_repo.AutoTrader.autotrader.autodata import AutoData
 from autotrader_custom_repo.AutoTrader.autotrader.utilities import get_data_config
 from autotrader_custom_repo.AutoTrader.autotrader.brokers.broker_utils import BrokerUtils
@@ -400,15 +404,11 @@ class Broker:
         # Add order to pending_orders dict
         order.status = "pending"
         try:
-            if isinstance(order.trade_instrument, list):
-                for instrument in order.trade_instrument:
-                    try:
-                        self._pending_orders[instrument.get('token')][order.id] = order
-                    except KeyError:
-                        self._pending_orders[instrument.get('token')] = {order.id: order}
+            self._pending_orders[order.instrument.get('token')][order.id] = order
+
         except KeyError:
             # Instrument hasn't been in pending orders yet
-            self._pending_orders[order.instrument] = {order.id: order}
+            self._pending_orders[order.instrument.get('token')] = {order.id: order}
 
         # Submit order
         if invalid_order:
@@ -649,7 +649,7 @@ class Broker:
                 instrument_position = Position(**instrument_position)
 
                 # Append Position to open_positions dict
-                open_positions[instrument] = instrument_position
+                open_positions[instrument.get('token')] = instrument_position
 
         return open_positions.copy()
 
@@ -662,9 +662,38 @@ class Broker:
         # Get public orderbook
         if self._paper_trading:
             # Papertrading, try get realtime orderbook
-            orderbook = self._autodata.L2(
-                instrument, spread_units=self._spread_units, spread=self._spread
-            )
+            # orderbook = self._autodata.L2(
+            #     instrument, spread_units=self._spread_units, spread=self._spread
+
+            logging.info(f"Getting Orderbook for instruments {instrument}")
+
+            api_url = "http://127.0.0.1:8000/quotes"
+            instrument_info = {
+                "instrument": instrument['instrument_code'],
+                "exchange": instrument['exchange'],
+                "product": instrument['product'],
+                "expiry": instrument['expiry'],
+                "strike": instrument['strike'],
+                "right": instrument['right']
+            }
+            response = requests.post(api_url, json=instrument_info)
+            json_response = json.loads(response.content)
+            quote_response = json_response['Success'][0]
+            bid = quote_response['best_bid_price']
+            ask = quote_response['best_offer_price']
+            bid_quantity = quote_response['best_bid_quantity']
+            ask_quantity= quote_response['best_offer_quantity']
+            spread = float(ask) - float(bid)
+            midprice = (float(ask) + float(bid)) / 2
+
+            orderbook = {
+                "bid" : bid,
+                "ask" : ask,
+                "bid_quantity" : bid_quantity,
+                "ask_quantity" : ask_quantity,
+                "spread": spread,
+                "midprice": midprice
+            }
         else:
             # Backtesting, use local pseudo-orderbook
             orderbook = self._autodata._local_orderbook(
@@ -684,6 +713,7 @@ class Broker:
         candle: pd.Series = None,
         L1: dict = None,
         trade: dict = None,
+        symbol = None
     ) -> None:
         """Updates orders and open positions based on the latest data.
 
@@ -771,6 +801,11 @@ class Broker:
         elif candle is not None:
             # Using OHLC data to update
             latest_time = candle.name
+            #This is temporary workaround to work with Developement data
+            if isinstance(latest_time, np.int64):
+                latest_time = datetime.now()
+                utc = pytz.UTC
+                latest_time = utc.localize(latest_time)
 
         else:
             # No new price data
@@ -1230,20 +1265,13 @@ class Broker:
     ) -> None:
         """Moves an order from the from_dict to the to_dict."""
         order.status = new_status
-        if isinstance(order.trade_instrument,list):
-            if(len(order.trade_instrument) > 1):
-                for instrument in order.trade_instrument:
-                    from_dict = getattr(self, from_dict)[instrument.get('token')]
-            else:
-                from_dict = getattr(self, from_dict)[order.instrument[0].get('token')]
-        else:
-            from_dict = getattr(self, from_dict)[order.trade_instrument]
+        from_dict = getattr(self, from_dict)[order.instrument.get('token')]
         to_dict = getattr(self, to_dict)
         popped_item = from_dict.pop(order.id)
         try:
-            to_dict[order.trade_instrument][order.id] = popped_item
+            to_dict[order.instrument.get('token')][order.id] = popped_item
         except KeyError:
-            to_dict[order.trade_instrument] = {order.id: popped_item}
+            to_dict[order.instrument.get('token')] = {order.id: popped_item}
 
     def _move_isolated_position(
         self,
@@ -1257,7 +1285,7 @@ class Broker:
         to_dict = getattr(self, to_dict)
         if from_dict is not None:
             # From dict exists, pop trade from it
-            from_dict = getattr(self, from_dict)[trade.instrument]
+            from_dict = getattr(self, from_dict)[trade.instrument.get('token')]
             popped_item = from_dict.pop(trade.id)
 
         else:
@@ -1266,9 +1294,9 @@ class Broker:
 
         # Make the move
         try:
-            to_dict[trade.instrument][trade.id] = popped_item
+            to_dict[trade.instrument.get('token')][trade.id] = popped_item
         except KeyError:
-            to_dict[trade.instrument] = {trade.id: popped_item}
+            to_dict[trade.instrument.get('token')] = {trade.id: popped_item}
 
     def _reduce_position(
         self,
@@ -1485,27 +1513,28 @@ class Broker:
         """
         # Get order book
         book = self.get_orderbook(instrument, reference_price)
-
-        # Work through the order book
-        units_to_fill = size
-        side = "bids" if direction < 0 else "asks"
-        fill_prices = []
-        fill_sizes = []
-        level_no = 0
-        while units_to_fill > 0:
-            # Consume liquidity
-            level = getattr(book, side).iloc[level_no]
-            units_consumed = min(units_to_fill, float(level["size"]))
-            fill_prices.append(float(level["price"]))
-            fill_sizes.append(units_consumed)
-
-            # Iterate
-            level_no += 1
-            units_to_fill -= units_consumed
-
-        avg_fill_price = sum(
-            [fill_sizes[i] * fill_prices[i] for i in range(len(fill_prices))]
-        ) / sum(fill_sizes)
+        # # Work through the order book
+        # units_to_fill = size
+        # side = "bid" if direction < 0 else "ask"
+        # fill_prices = []
+        # fill_sizes = []
+        # level_no = 0
+        # while units_to_fill > 0:
+        #
+        #     # Consume liquidity
+        #     level = getattr(book, side).iloc[level_no]
+        #     units_consumed = min(units_to_fill, float(level["size"]))
+        #     fill_prices.append(float(level["price"]))
+        #     fill_sizes.append(units_consumed)
+        #
+        #     # Iterate
+        #     level_no += 1
+        #     units_to_fill -= units_consumed
+        #
+        # avg_fill_price = sum(
+        #     [fill_sizes[i] * fill_prices[i] for i in range(len(fill_prices))]
+        # ) / sum(fill_sizes)
+        avg_fill_price = book['midprice']
 
         # Apply slippage function
         if not self._paper_trading:
