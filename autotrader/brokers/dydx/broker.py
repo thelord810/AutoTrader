@@ -1,15 +1,18 @@
 import pandas as pd
 from decimal import Decimal
 from datetime import datetime
+from autotrader import AutoData
 from dydx3 import Client, constants
+from autotrader.brokers.broker import AbstractBroker
+from autotrader.brokers.broker_utils import OrderBook
 from autotrader.brokers.dydx.utils import Utils, BrokerUtils
 from autotrader.brokers.trading import Order, Position, Trade
 
 
-class Broker:
+class Broker(AbstractBroker):
     def __init__(self, config: dict, utils: BrokerUtils = None) -> None:
         """AutoTrader Broker Class constructor."""
-        self.utils = utils if utils is not None else Utils()
+        self._utils = utils if utils is not None else Utils()
 
         # Unpack config to obtain STARK and API keys
         client = Client(
@@ -72,6 +75,20 @@ class Broker:
         position_id = self._get_account()["positionId"]
         limit_fee = order.limit_fee
 
+        kwargs = {}
+        if trigger_price is not None:
+            kwargs["trigger_price"] = trigger_price
+        if order_type == "MARKET":
+            kwargs["time_in_force"] = "IOC"
+
+        # TODO - allow more kwargs to be parsed from order
+
+        if order_price is None:
+            # Create order price
+            midprice = self.autodata.L2(order.instrument).midprice
+            multiple = 1.05 if side == "BUY" else 0.95
+            order_price = (Decimal(multiple) * midprice).quantize(midprice)
+
         # Submit order to dydx
         order = self.api.private.create_order(
             position_id=position_id,
@@ -80,10 +97,10 @@ class Broker:
             order_type=order_type,
             post_only=order.post_only,
             size=str(order.size),
-            price=order_price,
+            price=str(order_price),
             limit_fee=limit_fee,
-            trigger_price=trigger_price,
             expiration_epoch_seconds=expiration,
+            **kwargs,
         )
 
         return self._native_order(order.data["order"])
@@ -145,7 +162,7 @@ class Broker:
         market_df = pd.DataFrame(markets.data["markets"])
         return market_df
 
-    def get_orderbook(self, instrument):
+    def get_orderbook(self, instrument: str) -> OrderBook:
         # Get Orderbook
         orderbook = self.autodata.L2(instrument=instrument)
         return orderbook

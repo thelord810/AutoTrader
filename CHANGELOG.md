@@ -1,5 +1,166 @@
 # AutoTrader Changelog
 
+## v0.12.0 (2022-11-17)
+
+### Feat
+
+- **indicators**: added signal column to chandelier indicator
+- **indicators**: added chandelier exit indicator
+- **cli**: added option to initialise directory from demo repository
+
+### Fix
+
+- **indicators.py**: fill na values in indicator data for finding swings
+- **autoplot.py**: skip autoscaling when there is no data variation
+- **indicators.py**: fixed outdated argument for autodecting divergence
+
+## v0.11.2 (2022-10-27)
+
+### Fix
+
+- **AutoData**: do not truncate yahoo data if start and end arguments are not None
+
+## v0.11.1 (2022-10-27)
+
+### Refactor
+
+- **AutoData**: optionally provide workers as kwarg to fetch
+
+## v0.11.0 (2022-10-27)
+
+### Feat
+
+- **AutoData**: batch fetch instruments
+
+## v0.10.1 (2022-10-26)
+
+### Perf
+
+- data fetch of yahoo finance with count extends range to account for business days
+
+## v0.10.0 (2022-10-25)
+
+### Feat
+
+- improved monitor and added dashboard template
+- **cli.py**: added backtest demo function to cli
+
+### Fix
+
+- **autotrader.py**: write broker hist when click paper trading
+- **autodata.py**: raise exception when invalid granularity is provided to yahoo finance
+
+### Refactor
+
+- added exception handling for click papertrade
+- **autodata.py**: added exception handling for ccxt orderbook method
+- moved print_banner function to utilities
+- **cli.py**: init method more robust
+- **macd_strategy.py**: load data from yahoo finance
+- **macd_strategy.py**: changed data directory path to cwd
+- deprecated support for email notifications
+
+## v0.9.1 (2022-10-23)
+
+### Fix
+
+- **indicators.py**: fixed handling of different data types in find_swings indicator
+
+## v0.9.0 (2022-10-21)
+
+### Feat
+
+- reimplemented scan mode
+- integrated Telegram for trade notifications (#12)
+- **tg.py**: telegram bot can write chat id to keys.yaml
+- **telegram.py**: telegram bot returns chat id for initialisation
+- added initialisation method
+
+### Fix
+
+- fixed circular import errors
+- **tg.py**: order side determination logic
+
+### Refactor
+
+- **tg.py**: renamed telegram.py to tg.py to avoid name conflict
+- **notifier.py**: added abstract communications class Notifier
+
+## v0.8.2 (2022-10-19)
+
+### Refactor
+
+- **Broker**: all broker class inherit from AbstractBroker
+- **brokers.broker.py**: renamed Broker to AbstractBroker
+- **broker.py**: implemented initial broker abstraction
+
+## v0.8.1 (2022-10-19)
+
+### Refactor
+
+- **ccxt.broker.py**: added network exception handling with single retries
+
+## v0.8.0 (2022-10-17)
+
+### Feat
+
+- **autoplot.py**: portfolio plot includes equity and nav hovertool
+
+## v0.7.11 (2022-10-17)
+
+### Fix
+
+- email_manager import (#46)
+- datetime.timezone import
+- CCXT get_trades uses kwargs in fetchMyTrades call
+
+## Version 0.7.10
+### Changes
+- Improved verbosity for exception handling.
+- Improved verbosity in `autotrader.py` for bot updates.
+- Added utility to CCXT interface (`get_min_notional` and 
+  `get_ticksize` methods).
+- Improved CCXT `get_orders` capability.
+
+### Fixes
+- CCXT interface `get_trades` method updated for `Trade` object 
+  arguments.
+
+## Version 0.7.9
+### Fixes
+- Plotting bug when option to show cancelled orders is True.
+
+## Version 0.7.8
+### Features
+- Upgraded virtual broker: backtest speedup for large portfolio's 
+- Ability to specify `deploy_time` in `AutoTrader.configure()`, a datetime 
+  object for when to release trading bots.
+- Improved verbosity from main module when running.
+
+## Version 0.7.7
+### Fixes
+- Decimal error when placing market orders with `dydx` module.
+
+## Version 0.7.6
+### Fixes
+- Import error of `AutoData` in `dydx` module.
+
+## Version 0.7.5
+### Features
+- AutoBot submits orders using `ThreadPoolExecutor` to speedup
+  submission of multiple orders.
+- Ability to provide custom execution methods via 
+  `AutoTrader.configure(execution_method=)`. 
+- Improved verbosity from `autobot`s.
+
+### Fixes
+- Handling of testnet/mainnet keys when paper/virtual/live trading.
+- Inclusion of `__init__.py` file in `autotrader/brokers/ccxt/`.
+- Timezone handling.
+- Virtual broker does not use lambda functions to allow pickling.
+- Unified `broker._utils` attribute naming.
+
+
 ## Version 0.7.4
 ### Features
 - Better exception handling in CCXT broker interface.

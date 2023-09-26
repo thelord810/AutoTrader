@@ -9,11 +9,12 @@ import traceback
 import numpy as np
 import pandas as pd
 from autotrader import utilities, AutoData
+from autotrader.brokers.broker import AbstractBroker
 from autotrader.brokers.broker_utils import BrokerUtils
 from autotrader.brokers.trading import Order, IsolatedPosition, Position, Trade
 
 
-class Broker:
+class Broker(AbstractBroker):
     def __init__(self, oanda_config: dict, utils: BrokerUtils = None):
         """Create v20 context."""
         self.API = oanda_config["API"]
@@ -33,7 +34,7 @@ class Broker:
         # Assign broker utilities
         if utils is None:
             utils = BrokerUtils()
-        self.utils = utils
+        self._utils = utils
 
         # Create AutoData instance
         data_config = utilities.get_data_config(feed="oanda")
@@ -314,7 +315,7 @@ class Broker:
         response = self.api.instrument.candles(
             pair, granularity=interval, count=period, dailyAlignment=0
         )
-        data = self.utils.response_to_df(response)
+        data = self._utils.response_to_df(response)
         return data
 
     def check_trade_size(self, instrument: str, units: float) -> float:
@@ -389,7 +390,7 @@ class Broker:
             instrument, granularity=interval, fromTime=from_time, toTime=to_time
         )
 
-        data = self.utils.response_to_df(response)
+        data = self._utils.response_to_df(response)
 
         return data
 
