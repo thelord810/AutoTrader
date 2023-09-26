@@ -14,12 +14,18 @@ import signal
 from typing import Union
 from decimal import Decimal
 from autotrader_custom_repo.AutoTrader.autotrader.brokers.trading import Order
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from autotrader_custom_repo.AutoTrader.autotrader.brokers.broker_utils import OrderBook
 import pickle, zlib
 from autotrader_custom_repo.AutoTrader.autotrader import kakfaConsumer
 
 data_df = pandas.DataFrame
+try:
+    import ccxt
+except ImportError:
+    pass
+
 
 class AutoData:
     """AutoData class to retrieve price data.
@@ -200,7 +206,10 @@ class AutoData:
 
                         # Check sandbox mode
                         if "sandbox_mode" in data_config:
-                            self.api.set_sandbox_mode(True)
+                            self.api.set_sandbox_mode(data_config["sandbox_mode"])
+
+                        # Load markets
+                        markets = self.api.load_markets()
 
                 except ImportError:
                     raise Exception("Please install ccxt to use the CCXT data feed.")
@@ -274,17 +283,61 @@ class AutoData:
         *args,
         **kwargs,
     ) -> pd.DataFrame:
-        """Unified data retrieval api."""
+        """Unified OHLC data retrieval api.
+
+        Parameters
+        -----------
+        instrument : str, list
+            The instrument to fetch data for, or a list of instruments.
+        granularity : str
+            The granularity of the data to fetch.
+        count : int, optional
+            The number of OHLC bars to fetch. The default is None.
+        start_time : datetime, optional
+            The start date of the data to fetch. The default is None.
+        end_time : datetime, optional
+            The end date of the data to fetch. The default is None.
+
+        Returns
+        -------
+        data : pd.DataFrame, dict[pd.DataFrame]
+            The OHLC data.
+        """
         func = getattr(self, f"_{self._feed}")
-        data = func(
-            instrument,
-            granularity=granularity,
-            count=count,
-            start_time=start_time,
-            end_time=end_time,
-            *args,
-            **kwargs,
-        )
+        if isinstance(instrument, list):
+            max_workers = kwargs["workers"] if "workers" in kwargs else None
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {}
+                for i in instrument:
+                    futures[i] = executor.submit(
+                        func,
+                        instrument=i,
+                        granularity=granularity,
+                        count=count,
+                        start_time=start_time,
+                        end_time=end_time,
+                        *args,
+                        **kwargs,
+                    )
+            data = {}
+            for instrument, future in futures.items():
+                try:
+                    data[instrument] = future.result()
+                except Exception as e:
+                    print(f"Could not fetch data for {instrument}: {e}")
+
+        else:
+            # Single instrument
+            data = func(
+                instrument,
+                granularity=granularity,
+                count=count,
+                start_time=start_time,
+                end_time=end_time,
+                *args,
+                **kwargs,
+            )
+
         return data
 
     def _quote(self, *args, **kwargs):
@@ -948,20 +1001,30 @@ class AutoData:
             2419200: "1mo",
             7257600: "3mo",
         }
-        granularity = gran_map[pd.Timedelta(granularity).total_seconds()]
-
+        try:
+            granularity = gran_map[pd.Timedelta(granularity).total_seconds()]
+        except KeyError:
+            raise Exception(
+                f"The specified granularity of '{granularity}' is not "
+                + "valid for Yahoo Finance."
+            )
 
         if count is not None and start_time is None and end_time is None:
             # Convert count to start and end dates (assumes end=now)
             end_time = datetime.now()
             start_time = end_time - timedelta(
-                seconds=self._granularity_to_seconds(granularity, "yahoo") * count
+                seconds=self._granularity_to_seconds(granularity, "yahoo") * 1.5 * count
             )
 
+        # Fetch data
         data = self.api(
             tickers=instrument, start=start_time, end=end_time, interval=granularity
         )
 
+
+        # Remove excess data
+        if count is not None and start_time is None and end_time is None:
+            data = data.tail(count)
 
         if data.index.tzinfo is None:
             # Data is naive, add UTC timezone
@@ -1305,10 +1368,10 @@ class AutoData:
         """
 
         # Check requested start and end times
-        if end_time is not None and end_time > datetime.now():
+        if end_time is not None and end_time > datetime.now(tz=end_time.tzinfo):
             raise Exception("End time cannot be later than the current time.")
 
-        if start_time is not None and start_time > datetime.now():
+        if start_time is not None and start_time > datetime.now(tz=start_time.tzinfo):
             raise Exception("Start time cannot be later than the current time.")
 
         if start_time is not None and end_time is not None and start_time > end_time:
@@ -1320,17 +1383,24 @@ class AutoData:
 
         def fetch_between_dates():
             # Fetches data between two dates
-            count = 1000
+            max_count = 1000
             start_ts = int(start_time.timestamp() * 1000)
             end_ts = int(end_time.timestamp() * 1000)
 
             data = []
-            while start_ts <= end_ts:
+            while start_ts < end_ts:
+                count = min(
+                    max_count,
+                    1
+                    + (end_ts - start_ts)
+                    / pd.Timedelta(granularity).total_seconds()
+                    / 1000,
+                )
                 raw_data = self.api.fetchOHLCV(
                     instrument,
                     timeframe=granularity,
                     since=start_ts,
-                    limit=count,
+                    limit=int(count),
                     params=kwargs,
                 )
                 # Append data
@@ -1403,7 +1473,10 @@ class AutoData:
 
     def _ccxt_orderbook(self, instrument, limit=None, *args, **kwargs):
         """Returns the orderbook from a CCXT supported exchange."""
-        response = self.api.fetchOrderBook(symbol=instrument)
+        try:
+            response = self.api.fetchOrderBook(symbol=instrument)
+        except ccxt.errors.ExchangeError as e:
+            raise Exception(e)
 
         # Unify format
         orderbook = {}

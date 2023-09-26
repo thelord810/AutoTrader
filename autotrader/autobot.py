@@ -1,5 +1,6 @@
 import os
 import importlib
+import traceback
 import pandas as pd
 import logging
 import asyncio
@@ -78,11 +79,45 @@ class AutoTraderBot:
         # Inherit user options from autotrader
         for attribute, value in autotrader_instance.__dict__.items():
             setattr(self, attribute, value)
-        self._scan_results = {}
 
         # Assign local attributes
         self.instrument = instrument
         self._broker = broker
+
+        # # Define execution framework
+        if self._execution_method is None:
+            self._execution_method = self._submit_order
+
+        # Check for muliple brokers and construct mapper
+        if self._multiple_brokers:
+            # Trading across multiple venues
+            self._brokers = self._broker
+            self._instrument_to_broker = {}
+            for (
+                broker_name,
+                tradeable_instruments,
+            ) in self._virtual_tradeable_instruments.items():
+                for instrument in tradeable_instruments:
+                    if instrument in self._instrument_to_broker:
+                        # Instrument is already in mapper, add broker
+                        self._instrument_to_broker[instrument].append(
+                            self._brokers[broker_name]
+                        )
+                    else:
+                        # New instrument, add broker
+                        self._instrument_to_broker[instrument] = [
+                            self._brokers[broker_name]
+                        ]
+
+        else:
+            # Trading through a single broker
+            self._brokers = {self._broker_name: self._broker}
+
+            # Map instruments to broker
+            self._instrument_to_broker = {}
+            instruments = [instrument] if isinstance(instrument, str) else instrument
+            for instrument in instruments:
+                self._instrument_to_broker[instrument] = [self._broker]
 
         # Unpack strategy parameters and assign to strategy_params
         logging.info(f"Unpacking Strategy from config {strategy_dict}")
@@ -225,7 +260,9 @@ class AutoTraderBot:
             "feed": self._feed,
             "portfolio": portfolio,
             "data_path_mapper": self._data_path_mapper,
-            "live_mode": self._live_mode
+            "live_mode": self._live_mode,
+            "data_dir": self._data_directory,
+            "backtest_mode": self._backtest_mode,
         }
 
         self.Stream = self._data_stream_object(**stream_attributes)
@@ -325,33 +362,44 @@ class AutoTraderBot:
             orders = self._check_orders(strategy_orders)
             self._qualify_orders(orders, current_bars, quote_bars)
 
-            # Submit orders
-            for order in orders:
-                if self._scan_mode:
-                    # Bot is scanning
-                    scan_hit = {
-                        "size": order.size,
-                        "entry": current_bars[order.instrument].Close,
-                        "stop": order.stop_loss,
-                        "take": order.take_profit,
-                        "signal": order.direction,
-                    }
-                    self._scan_results[self.instrument] = scan_hit
-
+            if not self._scan_mode:
+                # Submit orders
+                if self._max_workers is not None:
+                    workers = min(self._max_workers, len(orders))
                 else:
-                    # Bot is trading
-                    try:
-                        order_time = current_bars[order.instrument.get('token')].datetime
-                    except:
-                        if self._feed == "none":
-                            order_time = datetime.now()
-                        else:
-                            order_time = current_bars[order.data_name].name
+                    workers = None
+                with ThreadPoolExecutor(max_workers=workers) as executor:
+                    futures = []
+                    for order in orders:
+                        try:
+                            order_time = current_bars[order.instrument.get('token')].datetime
+                        except:
+                            if self._feed == "none":
+                                order_time = datetime.now(timezone.utc)
+                            else:
+                                order_time = current_bars[order.data_name].name
 
-                    # Submit order to relevant exchange
-                    self._brokers[order.broker].place_order(
-                        order, order_time=order_time
-                    )
+                        # Submit order to relevant exchange
+                        futures.append(
+                            executor.submit(
+                                self._execution_method,
+                                broker=self._brokers[order.broker],
+                                order=order,
+                                order_time=order_time,
+                            )
+                        )
+
+                # Check for exceptions
+                for f in futures:
+                    try:
+                        f.result()
+                    except Exception as e:
+                        traceback_str = "".join(traceback.format_tb(e.__traceback__))
+                        exception_str = (
+                            f"AutoTrader exception when submitting order: {e}"
+                        )
+                        print_str = exception_str + "\nTraceback:\n" + traceback_str
+                        print(print_str)
 
             if self._papertrading:
                 # Update virtual broker again to trigger any orders
@@ -370,7 +418,7 @@ class AutoTraderBot:
                         order_string = (
                             f"{current_time}: {order.instrument} "
                             + f"{direction} {order.order_type} order of "
-                            + f"{order.size} units placed at {order.order_price}."
+                            + f"{order.size} units placed."
                         )
                         logging.info(order_string)
                 else:
@@ -380,76 +428,29 @@ class AutoTraderBot:
                         )
 
             # Check for orders placed and/or scan hits
-            if int(self._notify) > 0 and not self._backtest_mode:
-                telegram_bot = telegram_manager.TelegramBot("1287524606:AAGTt6NzYy9GqXIxDKtzWNwEASQhVkmre50")
-                # for order in orders:
-                #     self._broker_utils[order.broker].write_to_order_summary(
-                #         order, self._order_summary_fp
-                #     )
-
-                if (int(self._notify) > 0):
-                    # if int(self._verbosity) > 0 and len(self._latest_orders) > 0:
-                    #     logging.info("Sending Telegram notification ...")
-
-                    for order in orders:
-                        asyncio.run(telegram_bot.send_message(f"Order placed for {order.instrument['instrument']} {order.instrument['strike']} {order.instrument['right']} at Price {order.order_price}"))
-                        # emailing.send_order(
-                        #     order,
-                        #     self._email_params["mailing_list"],
-                        #     self._email_params["host_email"],
-                        # )
-
-                    if int(self._verbosity) > 0 and len(orders) > 0:
-                        logging.info("Done.")
+            if int(self._notify) > 0 and not (self._backtest_mode or self._scan_mode):
+                for order in orders:
+                    #telegram_bot = telegram_manager.TelegramBot("1287524606:AAGTt6NzYy9GqXIxDKtzWNwEASQhVkmre50")
+                    self._notifier.send_order(order)
 
             # Check scan results
             if self._scan_mode:
-                # Construct scan details dict
-                scan_details = {
-                    "index": self._scan_index,
-                    "strategy": self._strategy.name,
-                    "timeframe": self._strategy_params["granularity"],
-                }
-
                 # Report AutoScan results
-                # Scan reporting with no emailing requested.
                 if int(self._verbosity) > 0 or int(self._notify) == 0:
-                    if len(self._scan_results) == 0:
+                    # Scan reporting with no notifications requested
+                    if len(orders) == 0:
                         print("{}: No signal detected.".format(self.instrument))
+
                     else:
                         # Scan detected hits
-                        for instrument in self._scan_results:
-                            signal = self._scan_results[instrument]["signal"]
-                            signal_type = "Long" if signal == 1 else "Short"
-                            print(f"{instrument}: {signal_type} signal detected.")
+                        print("Scan hits:")
+                        for order in orders:
+                            print(order)
 
                 if int(self._notify) > 0:
-                    # Emailing requested
-                    if (
-                        len(self._scan_results) > 0
-                        and self._email_params["mailing_list"] is not None
-                        and self._email_params["host_email"] is not None
-                    ):
-                        # There was a scanner hit and email information is provided
-                        emailing.send_scan_results(
-                            self._scan_results,
-                            scan_details,
-                            self._email_params["mailing_list"],
-                            self._email_params["host_email"],
-                        )
-                    elif (
-                        int(self._notify) > 1
-                        and self._email_params["mailing_list"] is not None
-                        and self._email_params["host_email"] is not None
-                    ):
-                        # There was no scan hit, but notify set > 1, so send email
-                        # regardless.
-                        emailing.send_scan_results(
-                            self._scan_results,
-                            scan_details,
-                            self._email_params["mailing_list"],
-                            self._email_params["host_email"],
-                        )
+                    # Notifications requested
+                    for order in orders:
+                        self._notifier.send_message(f"Scan hit: {order}")
 
         else:
             if int(self._verbosity) > 1:
@@ -458,7 +459,9 @@ class AutoTraderBot:
                     + "insufficient data, or no new data. If you believe "
                     + "this is an error, try setting allow_dancing_bears to "
                     + "True, or set allow_duplicate_bars to True in "
-                    + "AutoTrader.configure()."
+                    + "AutoTrader.configure().\n"
+                    + f"Sufficient data: {sufficient_data}\n"
+                    + f"New data: {new_data}"
                 )
 
     def _refresh_data(self, timestamp: datetime = None, **kwargs):
@@ -586,7 +589,7 @@ class AutoTraderBot:
                     else:
                         raise Exception(f"Invalid order submitted: {item}")
             else:
-                raise Exception(f"Invalid order/s submitted: '{orders}' recieved")
+                raise Exception(f"Invalid order/s submitted: '{orders}' received")
 
             return checked_orders
 
@@ -651,9 +654,14 @@ class AutoTraderBot:
             broker = self._brokers[order.broker]
 
             # Fetch precision for instrument
-            #This is not required for Stocks and FnO. Will revisit later in currency
-            precision = None
-            #precision = broker._utils.get_precision(order.instrument)
+            try:
+                precision = broker._utils.get_precision(order.instrument)
+            except Exception as e:
+                # Print exception
+                print("AutoTrader exception when qualifying order:", e)
+
+                # Skip this order
+                continue
 
             if self._feed != "none":
                 # Get order price from current bars
@@ -715,9 +723,9 @@ class AutoTraderBot:
                 for broker in brokers:
                     broker._update_positions(instrument=product, candle=bar)
 
-    def _create_trade_results(self) -> dict:
+    def _create_trade_results(self, broker_histories: dict) -> dict:
         """Constructs bot-specific trade summary for post-processing."""
-        trade_results = TradeAnalysis(self._broker, self.instrument)
+        trade_results = TradeAnalysis(self._broker, broker_histories, self.instrument)
         trade_results.indicators = (
             self._strategy.indicators if hasattr(self._strategy, "indicators") else None
         )
@@ -1082,3 +1090,8 @@ class AutoTraderBot:
         """
         self.data = data
         self._strategy.data = data
+
+    @staticmethod
+    def _submit_order(broker, order, *args, **kwargs):
+        "The default order execution method."
+        broker.place_order(order, *args, **kwargs)
