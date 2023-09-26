@@ -18,7 +18,7 @@ from bokeh.models import (
 from bokeh.layouts import gridplot, layout
 from bokeh.transform import factor_cmap, cumsum, transform
 from bokeh.palettes import Category20c, Turbo256
-from autotrader.utilities import TradeAnalysis
+from autotrader_custom_repo.AutoTrader.autotrader.utilities import TradeAnalysis
 
 try:
     import importlib.resources as pkg_resources

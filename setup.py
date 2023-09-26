@@ -90,13 +90,19 @@ setuptools.setup(
         "prometheus-client >= 0.15.0",
     ],
     extras_require={
-        "dydx": dydx_dep,
-        "ccxt": ccxt_dep,
-        "oanda": oanda_dep,
-        "ib": ib_dep,
-        "yfinance": yfinance_dep,
-        "dev": dev_dep,
-        "all": all_dep,
+        "dydx": ["dydx-v3-python"],
+        "ccxt": ["ccxt"],
+        "oanda": [
+            "v20 >= 3.0.25.0",
+        "breeze_connect"
+        ],
+        "ib": [
+            "ib_insync >= 0.9.70",
+        ],
+        "yfinance": [
+            "yfinance >= 0.1.67",
+        ],
+        "dev": ["black"],
     },
     setup_requires=[
         "setuptools_git",

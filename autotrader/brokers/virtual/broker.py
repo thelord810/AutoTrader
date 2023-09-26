@@ -5,12 +5,15 @@ import numpy as np
 import pandas as pd
 from decimal import Decimal
 from typing import Callable
-from autotrader.autodata import AutoData
-from datetime import date, datetime, timezone
-from autotrader.utilities import get_data_config
-from autotrader.brokers.broker import AbstractBroker
-from autotrader.brokers.broker_utils import OrderBook, BrokerUtils
-from autotrader.brokers.trading import Order, IsolatedPosition, Position, Trade
+from datetime import date, datetime
+import pytz
+import logging
+import requests, json
+from autotrader_custom_repo.AutoTrader.autotrader import options
+from autotrader_custom_repo.AutoTrader.autotrader.autodata import AutoData
+from autotrader_custom_repo.AutoTrader.autotrader.utilities import get_data_config
+from autotrader_custom_repo.AutoTrader.autotrader.brokers.broker_utils import BrokerUtils
+from autotrader_custom_repo.AutoTrader.autotrader.brokers.trading import Order, IsolatedPosition, Position, Trade
 
 
 class Broker(AbstractBroker):
@@ -437,10 +440,11 @@ class Broker(AbstractBroker):
         # Add order to pending_orders dict
         order.status = "pending"
         try:
-            self._pending_orders[order.instrument][order.id] = order
+            self._pending_orders[order.instrument.get('token')][order.id] = order
+
         except KeyError:
             # Instrument hasn't been in pending orders yet
-            self._pending_orders[order.instrument] = {order.id: order}
+            self._pending_orders[order.instrument.get('token')] = {order.id: order}
 
         # Submit order
         if invalid_order:
@@ -548,7 +552,52 @@ class Broker(AbstractBroker):
         # Return a copy to prevent unintended manipulation
         return trades_dict.copy()
 
-    def get_positions(self, instrument: str = None) -> dict:
+
+    def get_isolated_positions(
+        self, instrument: str = None, status: str = "open", **kwargs
+    ):
+        """Returns isolated positions for the specified instrument.
+        This method has been implemented for the users of Oanda, which treats
+        trades as isolated positions.
+
+        Parameters
+        ----------
+        instrument : str, optional
+            The instrument to fetch trades under. The default is None.
+        status : str, optional
+            The status of the isolated positions to fetch ('open' or 'closed'). The
+            default is 'open'.
+        """
+        # Get all instrument isolated positions
+        all_iso_pos = getattr(self, f"_{status}_iso_pos")
+
+        if instrument:
+            # Specific instrument(s) requested
+            try:
+                pos = all_iso_pos[instrument]
+            except KeyError or TypeError:
+                # No isolated positions for this instrument
+                pos = {}
+        else:
+            # Return all currently open isolated positions
+            pos = {}
+            for instr, instr_trades in all_iso_pos.items():
+                pos.update(instr_trades)
+
+        # Return a copy to prevent unintended manipulation
+        return pos.copy()
+
+    def get_trade_details(self, trade_ID: int) -> IsolatedPosition:
+        """Returns the trade specified by trade_ID."""
+        raise DeprecationWarning(
+            "This method is deprecated, and will "
+            + "be removed in a future release. Please use the "
+            + "get_trades method instead."
+        )
+        instrument = self._trade_id_instrument[trade_ID]
+        return self._open_iso_pos[instrument][trade_ID]
+
+    def get_positions(self, instrument: str = None,  **kwargs) -> dict:
         """Returns the positions held by the account, sorted by
         instrument.
 
@@ -568,6 +617,7 @@ class Broker(AbstractBroker):
         net_position: refers to the number of units held in the position.
 
         """
+
         if instrument:
             # Instrument provided
             if instrument in self._positions:
@@ -576,6 +626,81 @@ class Broker(AbstractBroker):
                 return {}
         else:
             return self._positions.copy()
+
+        if isinstance(instrument, list):
+            # instrument provided
+            instruments = instrument
+        elif instrument:
+            instruments = [instrument]
+        else:
+            # No specific instrument requested, use all
+            instruments = list(self._open_iso_pos.keys())
+
+        open_positions = {}
+        for instrument in instruments:
+            # First get open isolated positions
+            open_iso_positions = self.get_isolated_positions(instrument.get('token'))
+            if len(open_iso_positions) > 0:
+                long_units = 0
+                long_PL = 0
+                long_margin = 0
+                short_units = 0
+                short_PL = 0
+                short_margin = 0
+                total_margin = 0
+                pnl = 0
+                last_price = None
+                trade_IDs = []
+
+                for trade_id, trade in open_iso_positions.items():
+                    trade_IDs.append(trade.id)
+                    last_price = (
+                        trade.last_price if trade.last_price is not None else last_price
+                    )
+                    total_margin += trade.margin_required
+                    pnl += trade.unrealised_PL
+                    if trade.direction > 0:
+                        # Long trade
+                        long_units += trade.size
+                        long_PL += trade.unrealised_PL
+                        long_margin += trade.margin_required
+                    else:
+                        # Short trade
+                        short_units += trade.size
+                        short_PL += trade.unrealised_PL
+                        short_margin += trade.margin_required
+
+                # Construct instrument position dict
+                net_position = long_units - short_units
+                try:
+                    net_exposure = net_position * last_price
+                except TypeError:
+                    # Last price has not been updated yet
+                    net_exposure = None
+                instrument_position = {
+                    "long_units": long_units,
+                    "long_PL": long_PL,
+                    "long_margin": long_margin,
+                    "short_units": short_units,
+                    "short_PL": short_PL,
+                    "short_margin": short_margin,
+                    "total_margin": total_margin,
+                    "trade_IDs": trade_IDs,
+                    "instrument": instrument,
+                    "net_position": net_position,
+                    "net_exposure": net_exposure,
+                    "last_price": last_price,
+                    "pnl": pnl,
+                }
+
+                # Create Position instance
+                instrument_position = Position(**instrument_position)
+
+                # Append Position to open_positions dict
+                open_positions[instrument.get('token')] = instrument_position
+
+        return open_positions.copy()
+
 
     def get_margin_available(self) -> float:
         """Returns the margin available on the account."""
@@ -620,6 +745,7 @@ class Broker(AbstractBroker):
         candle: pd.Series = None,
         L1: dict = None,
         trade: dict = None,
+        symbol = None
     ) -> None:
         """Updates orders and open positions based on the latest data.
 
@@ -744,6 +870,11 @@ class Broker(AbstractBroker):
         elif candle is not None:
             # Using OHLC data to update
             latest_time = candle.name
+            #This is temporary workaround to work with Developement data
+            if isinstance(latest_time, np.int64):
+                latest_time = datetime.now()
+                utc = pytz.UTC
+                latest_time = utc.localize(latest_time)
 
         else:
             # No new price data
@@ -1178,13 +1309,224 @@ class Broker(AbstractBroker):
     ) -> None:
         """Moves an order from the from_dict to the to_dict."""
         order.status = new_status
-        from_dict = getattr(self, from_dict)[order.instrument]
+        from_dict = getattr(self, from_dict)[order.instrument.get('token')]
         to_dict = getattr(self, to_dict)
         popped_item = from_dict.pop(order.id)
         try:
-            to_dict[order.instrument][order.id] = popped_item
+            to_dict[order.instrument.get('token')][order.id] = popped_item
         except KeyError:
-            to_dict[order.instrument] = {order.id: popped_item}
+            to_dict[order.instrument.get('token')] = {order.id: popped_item}
+
+    def _move_isolated_position(
+        self,
+        trade: IsolatedPosition,
+        from_dict: str = None,
+        to_dict: str = "_open_iso_pos",
+        new_status="open",
+    ) -> None:
+        """Moves an isolated position from the from_dict to the to_dict."""
+        trade.status = new_status
+        to_dict = getattr(self, to_dict)
+        if from_dict is not None:
+            # From dict exists, pop trade from it
+            from_dict = getattr(self, from_dict)[trade.instrument.get('token')]
+            popped_item = from_dict.pop(trade.id)
+
+        else:
+            # Use trade directly
+            popped_item = trade
+
+        # Make the move
+        try:
+            to_dict[trade.instrument.get('token')][trade.id] = popped_item
+        except KeyError:
+            to_dict[trade.instrument.get('token')] = {trade.id: popped_item}
+
+    def _reduce_position(
+        self,
+        order: Order = None,
+        exit_price: float = None,
+        exit_time: datetime = None,
+    ) -> None:
+        """Reduces the position of the specified instrument using an order. If the
+        order.size exceeds the net position, the entire existing position will be
+        closed out.
+
+        Parameters
+        -----------
+
+        Returns
+        -------
+        avg_exit_price : float
+            The average execution price used when reducing the position.
+        """
+        # Assign reference price: use limit price for limit order, else market price
+        reference_price = (
+            order.order_limit_price
+            if order.order_limit_price is not None
+            else exit_price
+        )
+
+        # Get current position in instrument
+        position = self.get_positions(order.instrument)
+
+        # Modify existing trades until there are no more units to reduce
+        units_to_reduce = min(
+            abs(order.size), abs(position[order.instrument].net_position)
+        )
+        executed_prices = []
+        executed_sizes = []
+        while round(units_to_reduce, order.size_precision) > 0:
+            # There are units to be reduced
+            open_trades = self.get_isolated_positions(order.instrument)
+            # TODO - issue when a margin call happens during this process,
+            # and the open_trades dict is no longer truthful. Need to review
+            # margin call process, as reducing should not increase margin
+            # requirements
+            for trade_id, trade in open_trades.items():
+                if trade.direction != order.direction:
+                    # Reduce this trade
+                    if units_to_reduce >= trade.size:
+                        # Entire trade must be closed
+                        exit_price = self._close_isolated_position(
+                            trade=trade,
+                            exit_price=reference_price,
+                            exit_time=exit_time,
+                            order_type=order.order_type,
+                        )
+
+                        # Update units_to_reduce
+                        units_to_reduce -= abs(trade.size)
+                        executed_prices.append(exit_price)
+                        executed_sizes.append(trade.size)
+
+                    elif units_to_reduce > 0:
+                        # Partially close trade (0 < units_to_reduce < trade.size)
+                        exit_price = self._reduce_isolated_position(
+                            trade=trade,
+                            units=units_to_reduce,
+                            exit_price=reference_price,
+                            exit_time=exit_time,
+                            order_type=order.order_type,
+                        )
+
+                        # Update units_to_reduce
+                        executed_prices.append(exit_price)
+                        executed_sizes.append(units_to_reduce)
+                        units_to_reduce = 0
+
+        avg_exit_price = sum(
+            [
+                executed_sizes[i] * executed_prices[i]
+                for i in range(len(executed_prices))
+            ]
+        ) / sum(executed_sizes)
+        return avg_exit_price
+
+    def _reduce_isolated_position(
+        self,
+        trade: IsolatedPosition,
+        units: float,
+        exit_price: float = None,
+        exit_time: datetime = None,
+        order_type: str = "market",
+    ) -> None:
+        """Splits an isolated position into two, to reduce it by a fractional
+        amount. The original ID remains, but the size is reduced. The portion
+        that gets closed is assigned a new ID.
+
+        Returns
+        -------
+        exit_price : float
+            The execution price used to reduce the isolated position.
+        """
+        # Create new trade for the amount to be reduced
+        partial_trade = IsolatedPosition._split(trade, units)
+        partial_trade_id = self._get_new_trade_id()
+        partial_trade.id = partial_trade_id
+
+        # Add partial trade to open trades, then immediately close it
+        self._open_iso_pos[trade.instrument][partial_trade_id] = partial_trade
+        exit_price = self._close_isolated_position(
+            trade=partial_trade,
+            exit_price=exit_price,
+            exit_time=exit_time,
+            order_type=order_type,
+        )
+
+        # Keep track of partial trade id instrument for reference
+        self._trade_id_instrument[partial_trade_id] = trade.instrument
+
+        return exit_price
+
+    def _close_isolated_position(
+        self,
+        trade: IsolatedPosition,
+        exit_price: float = None,
+        exit_time: datetime = None,
+        order_type: str = "market",
+    ) -> None:
+        """Closes an isolated position by ID.
+
+        Parameters
+        ----------
+        trade_id : int, optional
+            The trade id. The default is None.
+        exit_price : float, optional
+            The trade exit price. If none is provided, the market price
+            will be used. The default is None.
+        exit_time : datetime, optional
+            The trade exit time. The default is None.
+        order_type : str, optional
+            The order type used to calculate commissions. The default
+            is 'market'.
+
+        Returns
+        -------
+        exit_price : float
+            The price executed for the closeout of the isolated position.
+        """
+        fill_price = trade.fill_price
+        size = trade.size
+        direction = trade.direction
+
+        reference_price = exit_price if exit_price is not None else trade.last_price
+        if order_type == "limit":
+            # Limit order, use exit price provided
+            exit_price = reference_price
+
+        else:
+            # Trade through book, exit price provided as reference for midprice
+            exit_price = self._trade_through_book(
+                instrument=trade.instrument,
+                direction=-direction,
+                size=size,
+                reference_price=reference_price,
+                precision=trade.price_precision,
+            )
+
+        # Update portfolio with profit/loss
+        pnl = direction * size * (float(exit_price) - float(fill_price)) * trade.HCF
+
+        # Update trade closure attributes
+        trade.profit = pnl
+        trade.balance = self._equity
+        trade.exit_price = exit_price
+        # trade.fees = commission
+        trade.exit_time = exit_time if exit_time is not None else trade.last_time
+
+        # Add trade to closed positions
+        self._move_isolated_position(
+            trade,
+            from_dict="_open_iso_pos",
+            to_dict="_closed_iso_pos",
+            new_status="closed",
+        )
+
+        # Update account with position pnl
+        self._adjust_balance(pnl)
+
+        return exit_price
 
     def _trade_through_book(
         self,
@@ -1215,27 +1557,28 @@ class Broker(AbstractBroker):
         """
         # Get order book
         book = self.get_orderbook(instrument, reference_price)
-
-        # Work through the order book
-        units_to_fill = size
-        side = "bids" if direction < 0 else "asks"
-        fill_prices = []
-        fill_sizes = []
-        level_no = 0
-        while units_to_fill > 0:
-            # Consume liquidity
-            level = getattr(book, side).iloc[level_no]
-            units_consumed = min(units_to_fill, float(level["size"]))
-            fill_prices.append(float(level["price"]))
-            fill_sizes.append(units_consumed)
-
-            # Iterate
-            level_no += 1
-            units_to_fill -= units_consumed
-
-        avg_fill_price = sum(
-            [fill_sizes[i] * fill_prices[i] for i in range(len(fill_prices))]
-        ) / sum(fill_sizes)
+        # # Work through the order book
+        # units_to_fill = size
+        # side = "bid" if direction < 0 else "ask"
+        # fill_prices = []
+        # fill_sizes = []
+        # level_no = 0
+        # while units_to_fill > 0:
+        #
+        #     # Consume liquidity
+        #     level = getattr(book, side).iloc[level_no]
+        #     units_consumed = min(units_to_fill, float(level["size"]))
+        #     fill_prices.append(float(level["price"]))
+        #     fill_sizes.append(units_consumed)
+        #
+        #     # Iterate
+        #     level_no += 1
+        #     units_to_fill -= units_consumed
+        #
+        # avg_fill_price = sum(
+        #     [fill_sizes[i] * fill_prices[i] for i in range(len(fill_prices))]
+        # ) / sum(fill_sizes)
+        avg_fill_price = book['midprice']
 
         # Apply slippage function
         if not self._paper_trading:

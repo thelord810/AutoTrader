@@ -12,11 +12,8 @@ from typing import Callable
 from threading import Thread
 from ast import literal_eval
 from scipy.optimize import brute
-from autotrader.autoplot import AutoPlot
-from autotrader.autobot import AutoTraderBot
-from datetime import datetime, timedelta, timezone
-from autotrader.brokers.broker import AbstractBroker
-from autotrader.utilities import (
+from datetime import datetime, timezone
+from autotrader_custom_repo.AutoTrader.autotrader.utilities import (
     read_yaml,
     get_broker_config,
     DataStream,
@@ -24,6 +21,10 @@ from autotrader.utilities import (
     unpickle_broker,
     print_banner,
 )
+from autotrader_custom_repo.AutoTrader.autotrader.autoplot import AutoPlot
+from autotrader_custom_repo.AutoTrader.autotrader.autobot import AutoTraderBot
+from autotrader_custom_repo.AutoTrader.autotrader.comms import LoggingFramework
+
 
 
 class AutoTrader:
@@ -73,6 +74,10 @@ class AutoTrader:
         """AutoTrader initialisation. Called when creating new AutoTrader
         instance.
         """
+
+        #Create logger on Platform level and propogate it.
+        self.platform_logger = LoggingFramework.setup_logging("platform")
+
         # Public attributes
         self.trade_results = None
 
@@ -174,6 +179,9 @@ class AutoTrader:
         self._use_strat_plot_data = False
         self._plot_portolio_chart = False
 
+        #Set Live mode parameter
+        self._live_mode = False
+
     def __repr__(self):
         return f"AutoTrader instance"
 
@@ -192,7 +200,7 @@ class AutoTrader:
         home_dir: str = None,
         allow_dancing_bears: bool = False,
         account_id: str = None,
-        environment: str = "paper",
+        environment: str = "live",
         show_plot: bool = False,
         jupyter_notebook: bool = False,
         mode: str = "continuous",
@@ -310,6 +318,8 @@ class AutoTrader:
         self._allow_duplicate_bars = allow_duplicate_bars
         self._account_id = account_id
         self._environment = environment
+        if (environment == "paper"):
+            self._papertrading = True
         self._show_plot = show_plot
         self._jupyter_notebook = jupyter_notebook
         self._run_mode = mode
@@ -358,7 +368,7 @@ class AutoTrader:
         """
         # TODO - assign unique ID to different strategies to prevent instrument
         # traded names conflict
-
+        self.platform_logger.info("Adding Strategy to Autotrader instance")
         if self._home_dir is None:
             # Home directory has not yet been set, postpone strategy addition
             if config_filename is None:
@@ -402,19 +412,19 @@ class AutoTrader:
             required_keys = ["CLASS", "INTERVAL", "PERIOD"]
             for key in required_keys:
                 if key not in new_strategy:
-                    print(
+                    self.platform_logger.info(
                         f"Please include the '{key}' key in your strategy configuration."
                     )
                     sys.exit(0)
 
             if name in self._strategy_configs:
-                print(
-                    "Warning: duplicate strategy name deteced. Please check "
+                self.platform_logger.warning(
+                    "Warning: duplicate strategy name detected. Please check "
                     + "the NAME field of your strategy configuration file and "
                     + "make sure it is not the same as other strategies being "
                     + "run from this instance."
                 )
-                print("Conflicting name:", name)
+                self.platform_logger.error("Conflicting name:", name)
 
             # Check PERIOD type
             if isinstance(new_strategy["PERIOD"], float):
@@ -438,7 +448,7 @@ class AutoTrader:
                     new_strategy["INTERVAL"]
                 ).to_pytimedelta()
             except:
-                print(
+                self.platform_logger.error(
                     f"Strategy configuration error: invalid time interval: '{new_strategy['INTERVAL']}'."
                 )
                 sys.exit(0)
@@ -550,7 +560,7 @@ class AutoTrader:
 
         # TODO - allow specifying spread dictionary to have custom spreads for
         # different products
-
+        self.platform_logger.info("Configuring Virtual Account")
         # Enforce virtual broker and paper trading environment
         if exchange is not None:
             broker_name = exchange
@@ -560,7 +570,7 @@ class AutoTrader:
 
         if broker_name != "virtual" and broker_name not in self._broker_name:
             # Unrecognised broker
-            print(
+            self.platform_logger.error(
                 f"Please specify the broker '{broker_name}' in the "
                 + "configure method before configuring its virtual account."
             )
@@ -632,6 +642,7 @@ class AutoTrader:
             example, both start and end arguments must be provided together,
             or alternatively, start_dt and end_dt must both be provided.
         """
+        self.platform_logger.info("Configuring backtesting settings")
         # Convert start and end strings to datetime objects
         if start_dt is None and end_dt is None:
             start_dt = datetime.strptime(start + "+0000", "%d/%m/%Y%z")
@@ -681,7 +692,7 @@ class AutoTrader:
         --------
         AutoTrader.add_data()
         """
-
+        self.platform_logger.info("Configuring Optimization settings")
         if type(bounds) == str:
             full_tuple = literal_eval(bounds)
             bounds = [(x[0], x[-1]) for x in full_tuple]
@@ -803,6 +814,7 @@ class AutoTrader:
                            }
 
         """
+        self.platform_logger.info("Adding local data to strategy")
         self._data_directory = data_directory
         dir_path = (
             abs_dir_path
@@ -901,7 +913,7 @@ class AutoTrader:
             The scan settings of the active AutoTrader instance will be
             configured.
         """
-
+        self.platform_logger.info("Configuring scanner settings")
         # If a strategy is provided here, add it
         if strategy_filename is not None:
             self.add_strategy(config_filename=strategy_filename)
@@ -941,17 +953,17 @@ class AutoTrader:
             and not self._papertrading
             and int(self._verbosity) > 1
         ):
-            print(
+            self.platform_logger.warning(
                 "Warning: no strategy has been provided. Do so by using the"
                 + " 'add_strategy' method of AutoTrader."
             )
 
         if sum([self._backtest_mode, self._scan_mode]) > 1:
-            print(
+            self.platform_logger.error(
                 "Error: backtest mode and scan mode are both set to True,"
                 + " but only one of these can run at a time."
             )
-            print("Please check your inputs and try again.")
+            self.platform_logger.error("Please check your inputs and try again.")
             sys.exit(0)
 
         # Check self._timestep
@@ -984,7 +996,7 @@ class AutoTrader:
 
         if self._backtest_mode:
             if self._notify > 0:
-                print(
+                self.platform_logger.warning(
                     "Warning: notify set to {} ".format(self._notify)
                     + "during backtest. Setting to zero to prevent notifications."
                 )
@@ -992,7 +1004,7 @@ class AutoTrader:
 
             # Check that the backtest does not request future data
             if self._data_end > datetime.now(tz=self._data_end.tzinfo):
-                print(
+                self.platform_logger.warning(
                     "Warning: you have requested backtest data into the "
                     + "future. The backtest end date will be adjsuted to "
                     + "the current time."
@@ -1028,7 +1040,7 @@ class AutoTrader:
             if self._backtest_mode:
                 self._run_optimise()
             else:
-                print("Please set backtest parameters to run optimisation.")
+                self.platform_logger.info("Please set backtest parameters to run optimisation.")
 
         else:
             # Trading
@@ -1105,8 +1117,9 @@ class AutoTrader:
                 sys.exit()
 
             # Check global config requirements
-            if sum([self._backtest_mode, self._scan_mode, self._papertrading]) == 0:
+            if sum([self._backtest_mode, self._scan_mode]) == 0:
                 # Livetrade mode
+                self._live_mode = True
                 if global_config is None:
                     # No global_config
                     print(
@@ -1125,11 +1138,11 @@ class AutoTrader:
                     sys.exit()
 
                 # Check broker
-                supported_exchanges = ["virtual", "oanda", "ib", "ccxt", "dydx"]
+                supported_brokers = ["virtual", "oanda", "ib", "ccxt", "dydx", "icici", "kotak"]
                 inputted_brokers = self._broker_name.lower().replace(" ", "").split(",")
                 for broker in inputted_brokers:
                     if broker.split(":")[0] not in supported_exchanges:
-                        print(
+                        raise Exception(
                             f"Unsupported broker requested: {self._broker_name}\n"
                             + "Please check the broker(s) specified in configure method and "
                             + "virtual_account_config."
@@ -1205,6 +1218,7 @@ class AutoTrader:
         None
             The plot settings will be saved to the active AutoTrader instance.
         """
+        self.platform_logger.info("Configuring plot settings")
         # Assign attributes
         self._max_indis_over = max_indis_over
         self._max_indis_below = max_indis_below
@@ -1239,6 +1253,7 @@ class AutoTrader:
         If there is only one trading bot deployed, this will be returned
         directly, rather than in a dict.
         """
+        self.platform_logger.info(f"Deploying Bot for {instrument}")
         bots = {}
         for bot in self._bots_deployed:
             symbol = bot.instrument
@@ -1306,113 +1321,94 @@ class AutoTrader:
                 total_volume = trade_summary["all_trades"]["total_volume"]
                 adv = total_volume / duration.days
 
-            print("\n----------------------------------------------")
-            print("               Trading Results")
-            print("----------------------------------------------")
-            print("Start date:              {}".format(start_date))
-            print("End date:                {}".format(end_date))
-            print("Duration:                {}".format(duration))
-            print("Starting balance:        ${}".format(round(starting_balance, 2)))
-            print("Ending balance:          ${}".format(round(ending_balance, 2)))
-            print("Ending NAV:              ${}".format(round(ending_NAV, 2)))
-            print(
-                "Total return:            ${} ({}%)".format(
+            self.platform_logger.info("\n----------------------------------------------")
+            self.platform_logger.info("               Trading Results")
+            self.platform_logger.info("----------------------------------------------")
+            self.platform_logger.info("Start date:              {}".format(start_date))
+            self.platform_logger.info("End date:                {}".format(end_date))
+            self.platform_logger.info("Duration:                {}".format(duration))
+            self.platform_logger.info("Starting balance:        ₹{}".format(round(starting_balance, 2)))
+            self.platform_logger.info("Ending balance:          ₹{}".format(round(ending_balance, 2)))
+            self.platform_logger.info("Ending NAV:              ₹{}".format(round(ending_NAV, 2)))
+            self.platform_logger.info(
+                "Total return:            ₹{} ({}%)".format(
                     round(abs_return, 2), round(pc_return, 1)
                 )
             )
-            print("Maximum drawdown:        {}%".format(round(max_drawdown * 100, 2)))
+            self.platform_logger.info("Maximum drawdown:        {}%".format(round(max_drawdown * 100, 2)))
             if no_trades > 0:
-                print("Total no. trades:        {}".format(no_trades))
-                print("No. long trades:         {}".format(no_long_trades))
-                print("No. short trades:        {}".format(no_short_trades))
-                print("Total fees paid:         ${}".format(round(total_fees, 3)))
-                print("Total volume traded:     ${}".format(round(total_volume, 2)))
-                print("Average daily volume:    ${}".format(round(adv, 2)))
-                # print("Win rate:                {}%".format(round(win_rate, 1)))
-                # print("Max win:                 ${}".format(round(max_win, 2)))
-                # print("Average win:             ${}".format(round(avg_win, 2)))
-                # print("Max loss:                -${}".format(round(max_loss, 2)))
-                # print("Average loss:            -${}".format(round(avg_loss, 2)))
-                # print(
-                #     "Longest winning streak:  {} positions".format(longest_win_streak)
-                # )
-                # print(
-                #     "Longest losing streak:   {} positions".format(longest_lose_streak)
-                # )
-                # if len(trade_results.position_summary) > 0:
-                #     avg_pos_dur = np.mean(
-                #         trade_results.position_summary.loc["avg_duration"].values
-                #     )
-                #     print(
-                #         "Avg. position duration:  {}".format(
-                #             avg_pos_dur,
-                #         )
-                #     )
+                self.platform_logger.info("Total no. trades:        {}".format(no_trades))
+                self.platform_logger.info("No. long trades:         {}".format(no_long_trades))
+                self.platform_logger.info("No. short trades:        {}".format(no_short_trades))
+                self.platform_logger.info("Total fees paid:         ₹{}".format(round(total_fees, 3)))
+                self.platform_logger.info("Win rate:                {}%".format(round(win_rate, 1)))
+                self.platform_logger.info("Max win:                 ₹{}".format(round(max_win, 2)))
+                self.platform_logger.info("Average win:             ₹{}".format(round(avg_win, 2)))
+                self.platform_logger.info("Max loss:                -₹{}".format(round(max_loss, 2)))
+                self.platform_logger.info("Average loss:            -₹{}".format(round(avg_loss, 2)))
+                self.platform_logger.info(
+                    "Longest winning streak:  {} positions".format(longest_win_streak)
+                )
+                self.platform_logger.info(
+                    "Longest losing streak:   {} positions".format(longest_lose_streak)
+                )
+                self.platform_logger.info(
+                    "Average trade duration:  {}".format(
+                        trade_summary["all_trades"]["avg_trade_duration"]
+                    )
+                )
 
                 no_open = trade_summary["no_open"]
                 if no_open > 0:
-                    print("Positions still open:    {}".format(no_open))
+                    self.platform_logger.info("Positions still open:    {}".format(no_open))
 
             else:
-                print("\n No trades made.")
+                self.platform_logger.info("\n No trades closed.")
 
             no_cancelled = trade_summary["no_cancelled"]
             if no_cancelled > 0:
-                print("Cancelled orders:        {}".format(no_cancelled))
+                self.platform_logger.info("Cancelled orders:        {}".format(no_cancelled))
 
-            # if len(trade_results.position_summary) > 0:
-            #     # Long positions
-            #     no_long = trade_results.position_summary.sum(axis=1, numeric_only=True)[
-            #         "no_long"
-            #     ]
-            #     print("\n          Summary of long positions")
-            #     print("----------------------------------------------")
-            #     if no_long > 0:
-            #         # avg_long_win = trade_summary["long_positions"]["avg_long_win"]
-            #         # max_long_win = trade_summary["long_positions"]["max_long_win"]
-            #         # avg_long_loss = trade_summary["long_positions"]["avg_long_loss"]
-            #         # max_long_loss = trade_summary["long_positions"]["max_long_loss"]
-            #         # long_wr = trade_summary["long_positions"]["long_wr"]
-            #         avg_long_dur = np.mean(
-            #             trade_results.position_summary.loc["avg_long_duration"].values
-            #         )
+            # Long trades
+            no_long = trade_summary["long_positions"]["total"]
+            self.platform_logger.info("\n          Summary of long positions")
+            self.platform_logger.info("----------------------------------------------")
+            if no_long > 0:
+                avg_long_win = trade_summary["long_positions"]["avg_long_win"]
+                max_long_win = trade_summary["long_positions"]["max_long_win"]
+                avg_long_loss = trade_summary["long_positions"]["avg_long_loss"]
+                max_long_loss = trade_summary["long_positions"]["max_long_loss"]
+                long_wr = trade_summary["long_positions"]["long_wr"]
 
-            #         print("No. long positions:      {}".format(no_long))
-            #         print("Avg. position duration:  {}".format(avg_long_dur))
-            #         # print("Win rate:                {}%".format(round(long_wr, 1)))
-            #         # print("Max win:                 ${}".format(round(max_long_win, 2)))
-            #         # print("Average win:             ${}".format(round(avg_long_win, 2)))
-            #         # print("Max loss:                -${}".format(round(max_long_loss, 2)))
-            #         # print("Average loss:            -${}".format(round(avg_long_loss, 2)))
-            #     else:
-            #         print("There were no long positions.")
+                self.platform_logger.info("No. long positions:      {}".format(no_long))
+                self.platform_logger.info("Win rate:                {}%".format(round(long_wr, 1)))
+                self.platform_logger.info("Max win:                 ₹{}".format(round(max_long_win, 2)))
+                self.platform_logger.info("Average win:             ₹{}".format(round(avg_long_win, 2)))
+                self.platform_logger.info("Max loss:                -₹{}".format(round(max_long_loss, 2)))
+                self.platform_logger.info("Average loss:            -₹{}".format(round(avg_long_loss, 2)))
+            else:
+                self.platform_logger.info("There were no long positions.")
 
-            #     # Short trades
-            #     no_short = trade_results.position_summary.sum(
-            #         axis=1, numeric_only=True
-            #     )["no_short"]
-            #     print("\n         Summary of short positions")
-            #     print("----------------------------------------------")
-            #     if no_short > 0:
-            #         # avg_short_win = trade_summary["short_positions"]["avg_short_win"]
-            #         # max_short_win = trade_summary["short_positions"]["max_short_win"]
-            #         # avg_short_loss = trade_summary["short_positions"]["avg_short_loss"]
-            #         # max_short_loss = trade_summary["short_positions"]["max_short_loss"]
-            #         # short_wr = trade_summary["short_positions"]["short_wr"]
-            #         avg_short_dur = np.mean(
-            #             trade_results.position_summary.loc["avg_long_duration"].values
-            #         )
+            # Short trades
+            no_short = trade_summary["short_positions"]["total"]
+            print("\n         Summary of short positions")
+            print("----------------------------------------------")
+            if no_short > 0:
+                avg_short_win = trade_summary["short_positions"]["avg_short_win"]
+                max_short_win = trade_summary["short_positions"]["max_short_win"]
+                avg_short_loss = trade_summary["short_positions"]["avg_short_loss"]
+                max_short_loss = trade_summary["short_positions"]["max_short_loss"]
+                short_wr = trade_summary["short_positions"]["short_wr"]
 
-            #         print("No. short positions:     {}".format(no_short))
-            #         print("Avg. position duration:  {}".format(avg_short_dur))
-            #         # print("Win rate:                {}%".format(round(short_wr, 1)))
-            #         # print("Max win:                 ${}".format(round(max_short_win, 2)))
-            #         # print("Average win:             ${}".format(round(avg_short_win, 2)))
-            #         # print("Max loss:                -${}".format(round(max_short_loss, 2)))
-            #         # print("Average loss:            -${}".format(round(avg_short_loss, 2)))
+                self.platform_logger.info("No. short positions:     {}".format(no_short))
+                self.platform_logger.info("Win rate:                {}%".format(round(short_wr, 1)))
+                self.platform_logger.info("Max win:                 ₹{}".format(round(max_short_win, 2)))
+                self.platform_logger.info("Average win:             ₹{}".format(round(avg_short_win, 2)))
+                self.platform_logger.info("Max loss:                -₹{}".format(round(max_short_loss, 2)))
+                self.platform_logger.info("Average loss:            -₹{}".format(round(avg_short_loss, 2)))
 
-            #     else:
-            #         print("There were no short positions.")
+            else:
+                self.platform_logger.info("There were no short positions.")
 
             # Check for multiple instruments
             if len(trade_results.instruments_traded) > 1:
@@ -1457,11 +1453,10 @@ class AutoTrader:
             #         }
             #     ).fillna(0)
 
-            #     print("\n Instrument Breakdown:")
-            #     print(results.to_string(index=False))
-
+                self.platform_logger.info("\n Instrument Breakdown:")
+                self.platform_logger.info(results.to_string(index=False))
         else:
-            print("No updates to report.")
+            self.platform_logger.info("No updates to report.")
 
     def plot_backtest(self, bot=None) -> None:
         """Plots trade results of an AutoTrader Bot.
@@ -1477,6 +1472,7 @@ class AutoTrader:
         None
             A chart will be generated and shown.
         """
+        self.platform_logger.info("Plotting backtest result on chart")
 
         def portfolio_plot():
             ap = self._instantiate_autoplot()
@@ -1624,19 +1620,20 @@ class AutoTrader:
 
         if int(self._verbosity) > 0:
             if self._backtest_mode:
-                print("BACKTEST MODE")
+                self.platform_logger.info("BACKTEST MODE")
             else:
                 if self._scan_mode:
-                    print("SCAN MODE")
+                    self.platform_logger.info("SCAN MODE")
                 elif self._papertrading:
                     trade_mode = "auto" if len(self._bots_deployed) > 0 else "manual"
                     extra_str = f"{trade_mode} trade in {self._environment} environment"
-                    print(f"PAPERTRADE MODE ({extra_str})")
+                    self.platform_logger.info(f"PAPERTRADE MODE ({extra_str})")
                 else:
                     trade_mode = "auto" if len(self._bots_deployed) > 0 else "manual"
                     extra_str = f"{trade_mode} trade in {self._environment} environment"
-                    print(f"LIVETRADE MODE ({extra_str})")
-                print(
+                    self.livetrading = 1
+                    self.platform_logger.info(f"LIVETRADE MODE ({extra_str})")
+                self.platform_logger.info(
                     "Current time: {}".format(
                         datetime.now().strftime("%A, %B %d %Y, " + "%H:%M:%S")
                     )
@@ -1728,6 +1725,7 @@ class AutoTrader:
 
     def _assign_broker(self, broker_config: dict) -> None:
         """Configures and assigns appropriate broker(s) for trading."""
+        self.platform_logger.info(f"Assigning broker with following configuration: {broker_config}")
         # Check for multiple brokers
         if not self._multiple_brokers:
             # Put broker config in dict to allow single iteration
@@ -1753,10 +1751,10 @@ class AutoTrader:
 
             # Import relevant modules
             broker_module = importlib.import_module(
-                f"autotrader.brokers.{broker_name}.broker"
+                f"autotrader_custom_repo.AutoTrader.autotrader.brokers.{broker_name}.broker"
             )
             utils_module = importlib.import_module(
-                f"autotrader.brokers.{utils_name}.utils"
+                f"autotrader_custom_repo.AutoTrader.autotrader.brokers.{utils_name}.utils"
             )
 
             # Create broker and utils instances
@@ -1776,7 +1774,8 @@ class AutoTrader:
                     )
 
                 execution_feed = account_config["execution_feed"]
-                feed = self._feed if execution_feed is None else execution_feed
+                #feed = self._feed if execution_feed is None else execution_feed
+                feed = self._feed
                 autodata_config = {
                     "feed": feed,
                     "environment": self._environment,
@@ -1804,7 +1803,7 @@ class AutoTrader:
 
     def _run_optimise(self) -> None:
         """Runs optimisation of strategy parameters."""
-
+        self.platform_logger.info("Running optimization for Strategy Parameters")
         # Modify verbosity for optimisation
         verbosity = self._verbosity
         self._verbosity = 0
@@ -1813,8 +1812,8 @@ class AutoTrader:
 
         # Look in self._strategy_configs for config
         if len(self._strategy_configs) > 1:
-            print("Error: please optimise one strategy at a time.")
-            print("Exiting.")
+            self.platform_logger.error("Error: please optimise one strategy at a time.")
+            self.platform_logger.error("Exiting.")
             sys.exit(0)
         else:
             config_dict = self._strategy_configs[list(self._strategy_configs.keys())[0]]
@@ -1834,12 +1833,12 @@ class AutoTrader:
         opt_params = result[0]
         opt_value = result[1]
 
-        print("\nOptimisation complete.")
-        print("Time to run: {}s".format(round((stop - start), 3)))
-        print("Optimal parameters:")
-        print(opt_params)
-        print("Objective:")
-        print(opt_value)
+        self.platform_logger.info("\nOptimisation complete.")
+        self.platform_logger.info("Time to run: {}s".format(round((stop - start), 3)))
+        self.platform_logger.info("Optimal parameters:")
+        self.platform_logger.info(opt_params)
+        self.platform_logger.info("Objective:")
+        self.platform_logger.info(opt_value)
 
         # Reset verbosity
         self._verbosity = verbosity
@@ -1869,26 +1868,27 @@ class AutoTrader:
         except:
             objective = 1000
 
-        print("Parameters/objective:", params, "/", round(objective, 3))
+        self.platform_logger.info(f"Parameters/objective: {params} / {round(objective, 3)}")
 
         return objective
 
     def _check_bot_data(self) -> None:
         """Function to compare lengths of bot data."""
+        self.platform_logger.info("Checking Bot data")
         data_lengths = [len(bot.data) for bot in self._bots_deployed]
         if min(data_lengths) != np.mean(data_lengths):
-            print(
+            self.platform_logger.warning(
                 "Warning: mismatched data lengths detected. "
                 + "Correcting via row reduction."
             )
             self._normalise_bot_data()
-            print("  Done.\n")
+            self.platform_logger.info("Done.")
 
     def _normalise_bot_data(self) -> None:
         """Function to normalise the data of mutliple bots so that their
         indexes are equal, allowing backtesting in periodic update mode.
         """
-
+        self.platform_logger.info("Normalizing bot data")
         # Construct list of bot data
         data = [bot.data for bot in self._bots_deployed]
 
@@ -1952,7 +1952,7 @@ class AutoTrader:
             instance_file_exists = True
 
             if int(self._verbosity) > 0 and live_check:
-                print(f"Active AutoTrader instance file: active_bots/{instance_str}")
+                self.platform_logger.info(f"Active AutoTrader instance file: active_bots/{instance_str}")
 
         else:
             dirpath = os.path.join(self._home_dir, dir_name)
@@ -1964,9 +1964,8 @@ class AutoTrader:
             instance_file_exists = instance_str in instances
 
         if int(self._verbosity) > 0 and not instance_file_exists and live_check:
-            print(
-                f"Instance file '{instance_str}' deleted. AutoTrader",
-                "will now shut down.",
+            self.platform_logger.info(
+                f"Instance file '{instance_str}' deleted. AutoTrader will now shut down."
             )
 
         return instance_file_exists
@@ -1976,10 +1975,10 @@ class AutoTrader:
         # Check trading environment
         if self._papertrading:
             # Toggle broker monitoring on
-            print(
+            self.platform_logger.info(
                 f"Running virtual broker updates at {self._broker_refresh_freq} intervals."
             )
-            print("To stop papertrading, use at.shutdown().")
+            self.platform_logger.info("To stop papertrading, use at.shutdown().")
 
             self._maintain_broker_thread = True
             sleep_time = pd.Timedelta(self._broker_refresh_freq).total_seconds()
@@ -2023,10 +2022,10 @@ class AutoTrader:
 
                         time.sleep(sleep_time)
                 except Exception as e:
-                    print(e)
+                    self.platform_logger.error(e)
             else:
                 if int(self._verbosity) > 0:
-                    print("Broker update thread killed.")
+                    self.platform_logger.info("Broker update thread killed.")
 
     def shutdown(self):
         """Shutdown the active AutoTrader instance."""
@@ -2059,7 +2058,7 @@ class AutoTrader:
                 bot._create_trade_results(broker_histories=self._broker_histories)
 
             if int(self._verbosity) > 0:
-                print(
+                self.platform_logger.info(
                     "Backtest complete (runtime "
                     + f"{round((backtest_end_time - self._backtest_start_time), 3)} s)."
                 )
@@ -2094,7 +2093,7 @@ class AutoTrader:
                 picklefiles = "\n ".join(picklefile_list)
                 check_str = picklefiles.strip().split("\n")
                 if len(check_str) > 1 or check_str[0] != "":
-                    print(
+                    self.platform_logger.info(
                         f"\nThe following pickle files have been created:\n {picklefiles}"
                         + "\nUse the `unpickle_broker` utility to access these."
                     )
@@ -2107,7 +2106,7 @@ class AutoTrader:
     def _trade_update_loop(self):
         """Runs the mode-dependent trade update loop."""
         if int(self._verbosity) > 0 and self._backtest_mode:
-            print("\nTrading...\n")
+            self.platform_logger.info("Trading...")
             self._backtest_start_time = timeit.default_timer()
 
         if len(self._bots_deployed) == 0:
@@ -2200,8 +2199,8 @@ class AutoTrader:
 
                                 except:
                                     if int(self._verbosity) > 0:
-                                        print(
-                                            "Error: failed to update bot running "
+                                        self.platform_logger.info(
+                                            "Error: failed to update bot running"
                                             + f"{bot._strategy_name} ({bot.instrument})"
                                         )
                                         traceback.print_exc()
@@ -2259,14 +2258,14 @@ class AutoTrader:
                             )
 
                         except KeyboardInterrupt:
-                            print("\nKilling bot(s).")
+                            self.platform_logger.info("Killing bot(s).")
                             instance_filepath = os.path.join(
                                 self._home_dir, "active_bots", instance_str
                             )
                             try:
                                 os.remove(instance_filepath)
                             except FileNotFoundError:
-                                print(f"Intance file '{instance_str}' already deleted.")
+                                self.platform_logger.error(f"Intance file '{instance_str}' already deleted.")
                             break
 
             elif self._run_mode.lower() == "periodic":

@@ -1,13 +1,26 @@
+import logging
+from distutils.command.config import config
 import os
 import time
+import redis
+import pyarrow as pa
+import pandas
 import pandas as pd
+import json
+import requests
+import time
+import multitasking
+import signal
 from typing import Union
 from decimal import Decimal
-from autotrader.brokers.trading import Order
+from autotrader_custom_repo.AutoTrader.autotrader.brokers.trading import Order
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
-from autotrader.brokers.broker_utils import OrderBook
+from autotrader_custom_repo.AutoTrader.autotrader.brokers.broker_utils import OrderBook
+import pickle, zlib
+from autotrader_custom_repo.AutoTrader.autotrader import kakfaConsumer
 
+data_df = pandas.DataFrame
 try:
     import ccxt
 except ImportError:
@@ -23,6 +36,7 @@ class AutoData:
         the home currency of the account (used for retrieving quote data)
 
     _allow_dancing_bears : bool
+
         Allow incomplete candlesticks in data retrieval.
 
     """
@@ -42,6 +56,7 @@ class AutoData:
             The configuration dictionary for the data source to be used. This
             is created automatically in autotrader.utilities.get_data_config.
             The default is None.
+
         allow_dancing_bears : bool, optional
             A flag to allow incomplete bars to be returned in the data. The
             default is False.
@@ -55,11 +70,35 @@ class AutoData:
         None
             AutoData will be instantiated and ready to fetch price data.
         """
+        # # kill all tasks on ctrl-c
+        # signal.signal(signal.SIGINT, multitasking.killall)
+
+        #Create a redis connection pool for data storage
+        pool = redis.ConnectionPool(host='localhost', port=6379, db=0)
+        self.r = redis.Redis(connection_pool=pool)
+        #self.context = pa.default_serialization_context()
+
+        #Create a tick attribute which will store latest tick
+        self.latest_tick = None
+        self.data_dict = pd.DataFrame(
+            columns=['symbol', 'open', 'last', 'high', 'low', 'change', 'bPrice', 'bQty', 'sPrice', 'sQty', 'ltq', 'avgPrice', 'quotes', 'OI', 'CHNGOI', 'ttq', 'totalBuyQt', 'totalSellQ', 'ttv', 'trend', 'lowerCktLm', 'upperCktLm', 'ltt', 'close', 'exchange', 'product_type', 'expiry_date', 'stock_name', 'strike_price', 'right'])
+
         # Merge kwargs and data_config
         if data_config is None and kwargs is not None:
             data_config = {}
         for key, item in kwargs.items():
             data_config.setdefault(key, item)
+
+        #Start Kafka Consumer in separate thread
+        #process = Process(target=kakfaConsumer.confluent_consumer, args=(self.data_dict))
+        # t = threading.Thread(target=kakfaConsumer.confluent_consumer(self), name="Kafka_Consumer", daemon=True)
+        # t.start()
+        # self.kafka_consumer = kakfaConsumer.KafkaConsumer()
+        # #kick off kakfa thread
+        # self.confluent_consumer()
+        # time.sleep(5)
+        # #process.start()
+
 
         def configure_local_feed(data_config):
             """Configures the attributes for a local data feed."""
@@ -75,8 +114,22 @@ class AutoData:
             )
             self._spread = data_config["spread"] if "spread" in data_config else 0
 
+        def configure_common_feed(data_config):
+            """Configures the attributes for a common data feed."""
+            self._feed = "common"
+            self.api = None
+            self._data_directory = (
+                data_config["data_dir"] if "data_dir" in data_config else None
+            )
+            self._spread_units = (
+                data_config["spread_units"]
+                if "spread_units" in data_config
+                else "percentage"
+            )
+            self._spread = data_config["spread"] if "spread" in data_config else 0
+
         if not data_config:
-            configure_local_feed({})
+            configure_common_feed({})
         else:
             self._feed = data_config["data_source"].lower()
 
@@ -185,6 +238,9 @@ class AutoData:
             elif data_config["data_source"].lower() == "local":
                 configure_local_feed(data_config)
 
+            elif data_config["data_source"].lower() == "common":
+                configure_common_feed(data_config)
+
             elif data_config["data_source"].lower() == "none":
                 # No data feed required
                 self.api = None
@@ -201,6 +257,21 @@ class AutoData:
     def __str__(self):
         feed_str = self._ccxt_exchange if self._feed == "ccxt" else self._feed
         return f"AutoData ({feed_str} feed)"
+
+    # @multitasking.task
+    # def confluent_consumer(self):
+    #     self.kafka_consumer.consumer.subscribe(['newticker'])
+    #     for msg in self.kafka_consumer.consume(self.kafka_consumer.consumer, 1.0):
+    #         row_data_df = pd.DataFrame([msg.value()])
+    #         row_data_df.rename(
+    #             columns={'open': 'Open', 'low': 'Low', 'last': 'Close', 'high': 'High', 'ttv': 'volume',
+    #                      'OI': 'open_interest',
+    #                      'ltt': 'datetime', 'close': 'previous_close'}, inplace=True)
+    #         row_data_df['datetime'] = pd.to_datetime(row_data_df['datetime'], format='%a %b  %d %H:%M:%S %Y',
+    #                                                  utc=True)
+    #         row_data_df.set_index('datetime', inplace=True)
+    #         self.data_dict = pd.concat([self.data_dict, row_data_df])
+    #         self.r.set("key", self.context.serialize(self.data_dict).to_buffer().to_pybytes())
 
     def fetch(
         self,
@@ -305,14 +376,141 @@ class AutoData:
         trades = func(instrument, *args, **kwargs)
         return trades
 
-    def _oanda(
-        self,
-        instrument: str,
-        granularity: str,
-        count: int = None,
-        start_time: datetime = None,
-        end_time: datetime = None,
-    ) -> pd.DataFrame:
+
+
+    def _common_historic(self, instrument: str, granularity: str, count: int,
+              start_time: datetime = None, end_time: datetime = None,
+              order: Order = None, durationStr: str = '10 mins', **kwargs) -> pd.DataFrame:
+        """
+
+        Parameters
+        ----------
+        instrument : str
+            The instrument to fetch data for..
+        granularity : str
+            The candlestick granularity (eg. "1min", "1day")..
+        count : int
+            DESCRIPTION.
+        start_time : datetime, optional
+            DESCRIPTION. The default is None.
+        end_time : datetime, optional
+            DESCRIPTION. The default is None.
+        order : Order, optional
+            DESCRIPTION. The default is None.
+        **kwargs : TYPE
+            DESCRIPTION.
+
+        Raises
+        ------
+        NotImplementedError
+            DESCRIPTION.
+
+        Returns
+        -------
+        df : TYPE
+            DESCRIPTION.
+
+        Warnings
+        --------
+        This method is not recommended due to its high API poll rate.
+
+        References
+        ----------
+        https://ib-insync.readthedocs.io/api.html?highlight=reqhistoricaldata#
+        """
+
+        # contract = IB_Utils.build_contract(order)
+        api_url = "http://127.0.0.1:8000/data/historical"
+        instrument_info = {
+                            "instrument": instrument,
+                            "interval": granularity,
+                            "from_time": kwargs['start_date'],
+                            "to_time": kwargs['end_date'],
+                            "exchange": kwargs['exchange'],
+                            "product": kwargs['product'],
+                            "expiry": kwargs['expiry'],
+                            "strike": kwargs['strike'],
+                            "right": kwargs['option_type']
+                           }
+        response = requests.post(api_url, json=instrument_info)
+        json_response = json.loads(response.content)
+        df = pd.DataFrame(json_response['Success'])
+        #df_simplified = df[['datetime', 'open', 'high', 'low', 'close', 'volume', 'open_interest', 'count']]
+        df_simplified = df[['datetime', 'open', 'high', 'low', 'close', 'volume', 'count']]
+        # Convert datetime column
+        df_simplified['datetime'] = pd.to_datetime(df['datetime'], format='%Y-%m-%d %H:%M:%S', utc=True)
+        df_simplified.set_index('datetime', inplace=True)
+        df_simplified.rename(columns={'open': 'Open', 'low': 'Low', 'close': 'Close', 'high': 'High'}, inplace=True)
+
+        # Convert all columns to float
+        df_simplified['Open'] = df_simplified['Open'].astype(float)
+        df_simplified['Low'] = df_simplified['Low'].astype(float)
+        df_simplified['Close'] = df_simplified['Close'].astype(float)
+        df_simplified['High'] = df_simplified['High'].astype(float)
+        #df_simplified['open_interest'] = df_simplified['open_interest'].astype(float)
+
+        return df_simplified
+
+
+    def _common_livequotes(self, order, **kwargs) -> dict:
+        """Function to retrieve live quote data for instrument
+        """
+        instrument = order.instrument
+        complete_data = self.data_dict
+        #For multi trade instrument strategies
+        price = []
+        # if(len(instruments) > 1):
+        #     for instrument in instruments:
+        instrument_token = instrument.get('exchangeToken')
+        instrument_token = f"4.1!{instrument_token}"
+        data = complete_data[complete_data.symbol == instrument_token]
+
+        bid = data.iloc[-1].bPrice
+        ask = data.iloc[-1].sPrice
+        price.append({
+            "instrument": instrument_token,
+            "ask": ask,
+            "bid": bid
+        })
+
+        return price
+
+
+    def _common_quote_data(self, data: pd.DataFrame, pair: str, granularity: str,
+                          start_time: datetime, end_time: datetime):
+        """Function to retrieve price conversion data.
+        """
+
+        return data
+
+    def _common_liveprice(self, instrument: str, instrument_token: str, **kwargs) -> dict:
+        """Returns live feed for Instrument provided
+        """
+        instrument_token = f"4.1!{instrument_token}"
+         # Get
+        time.sleep(2)
+        #complete_data = pickle.loads(zlib.decompress(self.r.get("key")))
+        complete_data = pd.read_csv("daily_data01.csv")
+
+        self.data_dict = complete_data
+        symbol_data = complete_data[complete_data.symbol == instrument_token]
+        #Subscribe to live price instrument
+        # api_url = f"http://127.0.0.1:8000/feed/live/{instrument}"
+        # response = requests.get(api_url)
+
+        # data_dict = kakfaConsumer.confluent_consumer()
+        # row_data = next(data_dict)
+        # self.latest_tick = row_data
+        # data = pd.DataFrame(columns=['Open', 'High', 'Low', 'Close', 'volume', 'open_interest', 'count', 'symbol'])
+        # row_data_df = pd.DataFrame([row_data])
+        data = symbol_data.rename(columns={'open': 'Open', 'low': 'Low', 'last': 'Close', 'high': 'High', 'ttv': 'volume', 'OI': 'open_interest', 'ltt': 'datetime', 'close': 'previous_close'})
+        data['datetime'] = pd.to_datetime(data['datetime'], format='%a %b  %d %H:%M:%S %Y', utc=True)
+        # row_data_df.set_index('datetime', inplace=True)
+        # data = pd.concat([data, row_data_df])
+        return data
+
+    def oanda(self, instrument: str, granularity: str, count: int = None,
+              start_time: datetime = None, end_time: datetime = None) -> pd.DataFrame:
         """Retrieves historical price data of a instrument from Oanda v20 API.
 
         Parameters
@@ -340,6 +538,21 @@ class AutoData:
             time should be provided. If neither is provided, the N most
             recent candles will be provided. If both are provided, the count
             will be ignored, and instead the dates will be used.
+
+
+        Examples
+        --------
+        >>> data = GetData.oanda("EUR_USD", granularity="M15",
+                                 start_time=from_dt, end_time=to_dt)
+
+        >>> data = GetData.oanda("EUR_USD", granularity="M15",
+                                 start_time=from_dt, count=2110)
+
+        >>> data = GetData.oanda("EUR_USD", granularity="M15",
+                                 end_time=to_dt, count=2110)
+
+        >>> data = GetData.oanda("EUR_USD", granularity="M15",
+                                 count=2110)
         """
         gran_map = {
             5: "S5",
@@ -376,6 +589,7 @@ class AutoData:
                 )
                 data = self._response_to_df(response)
 
+
             elif start_time is not None and end_time is None:
                 # start_time + count
                 from_time = start_time.timestamp()
@@ -384,9 +598,11 @@ class AutoData:
                 )
                 data = self._response_to_df(response)
 
+
             elif end_time is not None and start_time is None:
                 # end_time + count
                 to_time = end_time.timestamp()
+
                 response = self.api.instrument.candles(
                     instrument, granularity=granularity, count=count, toTime=to_time
                 )
@@ -415,6 +631,7 @@ class AutoData:
                 else:
                     data = self._response_to_df(response)
 
+
         else:
             # count is None
             # Assume that both start_time and end_time have been specified.
@@ -426,6 +643,7 @@ class AutoData:
                 instrument, granularity=granularity, fromTime=from_time, toTime=to_time
             )
 
+
             # If the request is rejected, max candles likely exceeded
             if response.status != 200:
                 data = self._get_extended_oanda_data(
@@ -435,6 +653,7 @@ class AutoData:
                 data = self._response_to_df(response)
 
         return data
+
 
     def _oanda_liveprice(self, order: Order, **kwargs) -> dict:
         """Returns current price (bid+ask) and home conversion factors."""
@@ -476,6 +695,22 @@ class AutoData:
                 )
         return orderbook
 
+
+    def _common_orderbook(self, instrument, time=None, *args, **kwargs):
+        """Returns the orderbook from Specific Common datafeed."""
+        api_url = "http://127.0.0.1:8000/quotes"
+
+        # Unify format
+        orderbook = {}
+        for side in ["bids", "asks"]:
+            orderbook[side] = []
+            for level in prices[side]:
+                orderbook[side].append(
+                    {"price": level["price"], "size": level["liquidity"]}
+                )
+        return orderbook
+
+
     def _get_extended_oanda_data(self, instrument, granularity, from_time, to_time):
         """Returns historical data between a date range."""
         max_candles = 5000
@@ -490,6 +725,7 @@ class AutoData:
             count=max_candles,
         )
         data = self._response_to_df(response)
+
         last_time = data.index[-1].timestamp()
 
         while last_time < end_time:
@@ -503,6 +739,7 @@ class AutoData:
             )
 
             partial_data = self._response_to_df(response)
+
             data = pd.concat([data, partial_data])
             last_time = data.index[-1].timestamp()
 
@@ -600,6 +837,7 @@ class AutoData:
         if response.status != 200:
             print(response.reason)
 
+
     def _response_to_df(self, response):
         """Function to convert api response into a pandas dataframe."""
         try:
@@ -614,6 +852,7 @@ class AutoData:
         close_price, high_price, low_price, open_price, volume = [], [], [], [], []
 
         if self._allow_dancing_bears:
+
             # Allow all candles
             for candle in candles:
                 times.append(candle.time)
@@ -634,6 +873,7 @@ class AutoData:
                     open_price.append(float(candle.mid.o))
                     volume.append(float(candle.volume))
 
+
         dataframe = pd.DataFrame(
             {
                 "Open": open_price,
@@ -643,6 +883,7 @@ class AutoData:
                 "Volume": volume,
             }
         )
+
         dataframe.index = pd.to_datetime(times)
         dataframe.drop_duplicates(inplace=True)
 
@@ -693,12 +934,15 @@ class AutoData:
             my_int = conversions[letter] * number
 
         elif feed.lower() == "yahoo":
+
             # Note: will not work for week or month granularities
 
             letter = granularity[-1]
             number = float(granularity[:-1])
 
+
             conversions = {"m": 60, "h": 60 * 60, "d": 60 * 60 * 24}
+
 
             my_int = conversions[letter] * number
 
@@ -712,6 +956,7 @@ class AutoData:
         start_time: str = None,
         end_time: str = None,
     ) -> pd.DataFrame:
+
         """Retrieves historical price data from yahoo finance.
 
         Parameters
@@ -776,6 +1021,7 @@ class AutoData:
             tickers=instrument, start=start_time, end=end_time, interval=granularity
         )
 
+
         # Remove excess data
         if count is not None and start_time is None and end_time is None:
             data = data.tail(count)
@@ -785,6 +1031,7 @@ class AutoData:
             data.index = data.index.tz_localize(timezone.utc)
 
         return data
+
 
     def _yahoo_orderbook(self, *args, **kwargs):
         raise Exception("Orderbook data is not available from Yahoo Finance.")
@@ -798,6 +1045,7 @@ class AutoData:
         to_date: datetime,
         count: int = None,
     ):
+
         """Returns nominal price data - quote conversion not supported for
         Yahoo finance API.
         """
@@ -823,6 +1071,7 @@ class AutoData:
         **kwargs,
     ) -> pd.DataFrame:
         """Fetches data from IB.
+
 
         Parameters
         ----------
@@ -863,7 +1112,9 @@ class AutoData:
         # TODO - implement
         contract = IB_Utils.build_contract(order)
 
+
         dt = ""
+
         barsList = []
         while True:
             bars = self.api.reqHistoricalData(
@@ -885,7 +1136,9 @@ class AutoData:
         df = self.api.util.df(allBars)
         return df
 
+
     def _ib_liveprice(self, order: Order, snapshot: bool = False, **kwargs) -> dict:
+
         """Returns current price (bid+ask) and home conversion factors.
 
         Parameters
@@ -913,6 +1166,7 @@ class AutoData:
             "negativeHCF": 1,
             "positiveHCF": 1,
         }
+
         return price
 
     @staticmethod
@@ -970,6 +1224,7 @@ class AutoData:
         **kwargs,
     ) -> pd.DataFrame:
         """Reads and returns local price data.
+
 
         Parameters
         ----------

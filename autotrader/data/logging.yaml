@@ -1,0 +1,85 @@
+version: 1
+disable_existing_loggers: true
+
+formatters:
+    standard:
+        format: "%(asctime)s [%(levelname)s] %(filename)s %(lineno)d : %(message)s"
+    extended:
+        format: "%(asctime)s %(levelname)-5s [%(module)s:%(funcName)s: %(lineno)d] %(message)s"
+
+handlers:
+    console:
+        class: logging.StreamHandler
+        level: DEBUG
+        formatter: extended
+        stream: ext://sys.stdout
+        filters: [custom_pr_filter]
+
+    file_handler:
+        class: logging.handlers.RotatingFileHandler
+        level: INFO
+        formatter: extended
+        filename: platform.log
+        maxBytes: 10485760 # 10MB
+        backupCount: 20
+        encoding: utf8
+        filters: [custom_pr_filter]
+
+    debug_handler:
+        class: logging.handlers.RotatingFileHandler
+        level: DEBUG
+        formatter: extended
+        filename: platform_debug.log
+        maxBytes: 10485760 # 10MB
+        backupCount: 20
+        encoding: utf8 
+        filters: [custom_pr_filter]   
+
+    perf_handler:
+        class: logging.handlers.RotatingFileHandler
+        level: DEBUG
+        formatter: extended
+        filename: perf.log
+        maxBytes: 10485760 # 10MB
+        backupCount: 20
+        encoding: utf8
+    
+
+
+filters:
+    custom_pr_filter:
+        (): autotrader_custom_repo.AutoTrader.autotrader.comms.LoggingFramework.RedactingFilter
+        patterns:
+            - ('[^']*?(?=slack|git|client_id|password|token|accessToken|orgId|privateKey|clientId|key|Key|hub_secretIdMapping|InstallationKey|Default_Pkg_Installation_Key)[^']*':\s*')[^']*'
+
+loggers:
+    test:
+        level: DEBUG
+        handlers: [console, file_handler, debug_handler]
+        propogate: yes
+
+    debug_log:
+        level: DEBUG
+        handlers: [debug_handler]
+        propogate: yes    
+
+    perf:
+        level: DEBUG
+        handlers: [perf_handler]
+        propogate: yes
+    
+    trades:
+        level: DEBUG
+        handlers: [console, file_handler]
+        propogate: Yes
+    
+    platform:
+        level: DEBUG
+        handlers: [console, file_handler, debug_handler]
+        propogate: yes
+
+    
+root:
+    level: DEBUG
+    handlers: [console, file_handler, debug_handler]
+    propogate: yes

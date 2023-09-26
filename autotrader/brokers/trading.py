@@ -1,7 +1,18 @@
 from __future__ import annotations
+
+import json
+
 import numpy as np
 from datetime import datetime
-from autotrader.brokers.broker_utils import BrokerUtils
+
+import requests
+
+from autotrader_custom_repo.AutoTrader.autotrader.brokers.broker_utils import BrokerUtils
+from autotrader_custom_repo.AutoTrader.autotrader import options
+import logging
+import pytz
+from pgcopy import CopyManager
+import config, psycopg2
 
 
 class Order:
@@ -63,8 +74,8 @@ class Order:
     limit_fee : str, optional
         The maximum fee to accept as a percentage (dYdX only). The default
         is '0.015'.
-    exchange : str
-        The exchange to which the order should be submitted.
+    broker : str
+        The broker to which the order should be submitted.
     ccxt_params : dict, optional
         The CCXT parameters dictionary to pass when creating an order. The
         default is {}.
@@ -84,6 +95,18 @@ class Order:
         **kwargs,
     ) -> Order:
 
+        # establish database connection
+        self.conn = psycopg2.connect(database="Orders",
+                                host="localhost",
+                                user="postgres",
+                                password="password",
+                                port=5432)
+
+        # column names in the database (pgcopy needs it as a parameter)
+        self.COLUMNS = ('time', 'symbol', 'order_type', 'size', 'order_price', 'order_time', 'stop_loss', 'stop_type', 'direction')
+
+        # create a copy manager instance
+        self.mgr = CopyManager(self.conn, 'order', self.COLUMNS)
         # Required attributes
         self.instrument = instrument
         self.direction = direction
@@ -105,7 +128,7 @@ class Order:
         self.size_precision = 5
 
         # Multi-exchange handling
-        self.exchange = None
+        self.broker = None
 
         # Stop loss arguments
         self.stop_type = stop_type
@@ -238,7 +261,9 @@ class Order:
             Calling an Order will ensure all information is present.
         """
         self.order_price = order_price if order_price else self.order_price
-        self.order_time = order_time if order_time else self.order_time
+        utc = pytz.UTC
+        self.order_time = utc.localize(datetime.now())
+        #self.order_time = order_time if order_time else self.order_time
         self.HCF = HCF if HCF is not None else self.HCF
 
         # Assign precisions
@@ -858,3 +883,108 @@ class Position:
         objects as a dictionary.
         """
         return self.__dict__
+
+
+class Symbol:
+    """AutoTrader Symbol object.
+
+    Attributes
+    ----------
+    instrument : any
+        The trade instrument of the position.
+    exchange: str
+        Exchange for an instrument. This can be NSE, BSE, MCX, NFO
+    expiry: any
+        Expiry for which symbol token has to be fetched. Takes Values such as "CURRENT, NEAR, FAR" or Date
+    product:
+        Type of product for instrument. It can be "EQ","FI","FS","OI","OS"
+    """
+
+    def __init__(
+        self,
+        instrument: any = None,
+        strategy_parameters: dict = None,
+        **kwargs,
+    ) -> Symbol:
+        self.instrument = instrument
+        self.strategy_parameters = strategy_parameters
+
+
+    def get_order_token_details(self, order_instruments = None):
+        if isinstance(self.instrument, list):
+            logging.info(f"Generating Symbol for instruments {self.instrument}")
+            tokenlist = []
+            for inst in self.instrument:
+                expiry = options.getExpiryDate(self.strategy_parameters['expiry'],self.strategy_parameters['contract'] )
+                api_url = "http://127.0.0.1:8000/tokens/kotak"
+                instrument_info = {
+                    "instrument": self.strategy_parameters['name'],
+                    "exchange": self.strategy_parameters['exchange'],
+                    "product": self.strategy_parameters['product'],
+                    "expiry": expiry,
+                    "strike": inst['strike'],
+                    "right": inst['option_type'],
+                    "instrument_code": self.strategy_parameters['iciciCode']
+                }
+                response = requests.post(api_url, json=instrument_info)
+                json_response = json.loads(response.content)
+                json_response.update(instrument_info)
+                tokenlist.append(json_response)
+            return tokenlist
+
+    def get_orderbook(self, token):
+        if isinstance(self.instrument, list):
+            logging.info(f"Getting Orderbook for instruments {self.instrument}")
+
+            expiry = options.getExpiryDate(self.strategy_parameters['expiry'],self.strategy_parameters['contract'] )
+            api_url = "http://127.0.0.1:8000/quotes"
+            instrument_info = {
+                "instrument": self.strategy_parameters['name'],
+                "exchange": self.strategy_parameters['exchange'],
+                "product": self.strategy_parameters['product'],
+                "expiry": expiry,
+                "strike": inst['strike'],
+                "right": inst['option_type']
+            }
+            response = requests.post(api_url, json=instrument_info)
+            json_response = json.loads(response.content)
+
+        return json_response
+
+    def get_data_token_details(self, token):
+
+        api_url = f"http://127.0.0.1:8000/exchangeTokens/{token}"
+
+        response = requests.get(api_url)
+        exchange_token = json.loads(response.content)
+        return exchange_token
+
+    def subscribe_websocket(self, token):
+        api_url = f"http://127.0.0.1:8000/feed/live/{token}"
+        response = requests.get(api_url)
+        return response
+
+
+    def find_trade_instruments(self):
+        expiry = options.getExpiryDateIcici(self.strategy_parameters['expiry'], self.strategy_parameters['contract'])
+        # Get strike to sell for call
+        call_strike = options.getStrikeByPrice(self.strategy_parameters['iciciCode'], self.strategy_parameters['option_price'],
+                                               "call", expiry)
+
+        # Get strike to sell for put
+        put_strike = options.getStrikeByPrice(self.strategy_parameters['iciciCode'], self.strategy_parameters['option_price'],
+                                              "put",
+                                              expiry)
+
+        # Set Instruments based on ATM Strike
+        if (self.strategy_parameters['option_type'] == "both"):
+            self.instrument = [{"strike": call_strike, "option_type": "CE"},
+                               {"strike": put_strike, "option_type": "PE"}]
+
+
+        trade_instrument_details = self.get_order_token_details()
+
+        for instrument in trade_instrument_details:
+            self.subscribe_websocket(instrument.get('exchangeToken'))
+
+        return trade_instrument_details

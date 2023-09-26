@@ -2,11 +2,15 @@ import os
 import importlib
 import traceback
 import pandas as pd
+import logging
+import asyncio
+from autotrader_custom_repo.AutoTrader.autotrader.comms import emailing
+from autotrader_custom_repo.AutoTrader.autotrader.bin import telegram_manager
 from datetime import datetime, timezone
-from autotrader.autodata import AutoData
-from autotrader.brokers.trading import Order
-from concurrent.futures import ThreadPoolExecutor
-from autotrader.utilities import get_data_config, TradeAnalysis
+from autotrader_custom_repo.AutoTrader.autotrader.autodata import AutoData
+from autotrader_custom_repo.AutoTrader.autotrader.brokers.trading import Order, Symbol
+from autotrader_custom_repo.AutoTrader.autotrader.utilities import read_yaml, get_data_config, TradeAnalysis
+
 
 
 class AutoTraderBot:
@@ -71,6 +75,7 @@ class AutoTraderBot:
             The trading bot will be instantiated and ready for trading.
 
         """
+        logging.info(f"Initiating Bot for {autotrader_instance}")
         # Inherit user options from autotrader
         for attribute, value in autotrader_instance.__dict__.items():
             setattr(self, attribute, value)
@@ -115,6 +120,7 @@ class AutoTraderBot:
                 self._instrument_to_broker[instrument] = [self._broker]
 
         # Unpack strategy parameters and assign to strategy_params
+        logging.info(f"Unpacking Strategy from config {strategy_dict}")
         strategy_config = strategy_dict["config"]
         interval = strategy_config["INTERVAL"]
         period = strategy_config["PERIOD"]
@@ -155,6 +161,43 @@ class AutoTraderBot:
         )
         self._strategy_params = strategy_params
 
+        #Initiate Symbol to get trade instruments
+        self._symbol = Symbol(strategy_parameters = strategy_params)
+
+        #Get trade instruments
+        self.trade_instruments = self._symbol.find_trade_instruments()
+
+        # Check for muliple brokers and construct mapper
+        if self._multiple_brokers:
+            # Trading across multiple venues
+            self._brokers = self._broker
+            self._instrument_to_broker = {}
+            for (
+                broker_name,
+                tradeable_instruments,
+            ) in self._virtual_tradeable_instruments.items():
+                for instrument in tradeable_instruments:
+                    if instrument in self._instrument_to_broker:
+                        # Instrument is already in mapper, add broker
+                        self._instrument_to_broker[instrument].append(
+                            self._brokers[broker_name]
+                        )
+                    else:
+                        # New instrument, add broker
+                        self._instrument_to_broker[instrument] = [
+                            self._brokers[broker_name]
+                        ]
+
+        else:
+            # Trading through a single broker
+            self._brokers = {self._broker_name: self._broker}
+
+            # Map instruments to broker
+            self._instrument_to_broker = {}
+            instruments = [instrument] if isinstance(instrument, str) else instrument
+            for instrument in self.trade_instruments:
+                self._instrument_to_broker[instrument.get('token')] = [self._broker]
+
         # Import Strategy
         if strategy_dict["class"] is not None:
             strategy = strategy_dict["class"]
@@ -174,6 +217,7 @@ class AutoTraderBot:
         self._strategy_shutdown_method = strategy_dict["shutdown_method"]
 
         # Get data feed configuration
+        logging.info(f"Getting data feed config")
         data_config = get_data_config(
             feed=self._feed,
             global_config=self._global_config_dict,
@@ -197,6 +241,7 @@ class AutoTraderBot:
         portfolio = strategy_config["WATCHLIST"] if trade_portfolio else False
 
         # Fetch data
+        logging.info(f"Fetching initial data and creating stream object")
         self._get_data = AutoData(
             data_config, self._allow_dancing_bears, self._base_currency
         )
@@ -211,12 +256,15 @@ class AutoTraderBot:
             "data_start": self._data_start,
             "data_end": self._data_end,
             "instrument": self.instrument,
+            "trade_instruments": self.trade_instruments,
             "feed": self._feed,
             "portfolio": portfolio,
             "data_path_mapper": self._data_path_mapper,
+            "live_mode": self._live_mode,
             "data_dir": self._data_directory,
             "backtest_mode": self._backtest_mode,
         }
+
         self.Stream = self._data_stream_object(**stream_attributes)
 
         # Initial data call
@@ -227,6 +275,8 @@ class AutoTraderBot:
             "parameters": params,
             "data": self._strat_data,
             "instrument": self.instrument,
+            "trade_instruments": self.trade_instruments,
+            "broker": self._broker
         }
 
         if strategy_config["INCLUDE_BROKER"]:
@@ -322,7 +372,7 @@ class AutoTraderBot:
                     futures = []
                     for order in orders:
                         try:
-                            order_time = current_bars[order.instrument].name
+                            order_time = current_bars[order.instrument.get('token')].datetime
                         except:
                             if self._feed == "none":
                                 order_time = datetime.now(timezone.utc)
@@ -333,7 +383,7 @@ class AutoTraderBot:
                         futures.append(
                             executor.submit(
                                 self._execution_method,
-                                broker=self._brokers[order.exchange],
+                                broker=self._brokers[order.broker],
                                 order=order,
                                 order_time=order_time,
                             )
@@ -370,16 +420,17 @@ class AutoTraderBot:
                             + f"{direction} {order.order_type} order of "
                             + f"{order.size} units placed."
                         )
-                        print(order_string)
+                        logging.info(order_string)
                 else:
                     if int(self._verbosity) > 2:
-                        print(
+                        logging.info(
                             f"{current_time}: No signal detected ({self.instrument})."
                         )
 
             # Check for orders placed and/or scan hits
             if int(self._notify) > 0 and not (self._backtest_mode or self._scan_mode):
                 for order in orders:
+                    #telegram_bot = telegram_manager.TelegramBot("1287524606:AAGTt6NzYy9GqXIxDKtzWNwEASQhVkmre50")
                     self._notifier.send_order(order)
 
             # Check scan results
@@ -443,14 +494,21 @@ class AutoTraderBot:
 
         """
 
-        timestamp = datetime.now(timezone.utc) if timestamp is None else timestamp
-
+        
+        timestamp = datetime.now() if timestamp is None else timestamp
+        
         # Fetch new data
+        logging.info(f"Updated data for {timestamp}")
         data, multi_data, quote_data, auxdata = self.Stream.refresh(timestamp=timestamp)
 
-        # Check data returned is valid
-        if self._feed != "none" and len(data) == 0:
-            raise Exception("Error retrieving data.")
+        # # Check data returned is valid
+        # if self._feed != "none" and len(data) == 0:
+        #     raise Exception("Error retrieving data.")
+
+        #Update instrument type in trade instruments as per Websocket data.
+        # This has to be done due to disparity in token data and websocket data. To be raised as case to Icici and kotak
+        # for instrument in self.trade_instruments:
+        #     instrument['product'] = data.iloc[-1].product_type
 
         # Data assignment
         if multi_data is None:
@@ -462,6 +520,7 @@ class AutoTraderBot:
         if auxdata is not None:
             strat_data = {"base": strat_data, "aux": auxdata}
 
+        #logging.info(strat_data.to_dict('records'))
         # Assign data attributes to bot
         self._strat_data = strat_data
         self.data = data
@@ -564,19 +623,19 @@ class AutoTraderBot:
                         continue
 
                 # Check that an exchange has been specified
-                if order.exchange is None:
+                if order.broker is None:
                     # Exchange not specified
                     if self._multiple_brokers:
                         # Trading across multiple venues
                         raise Exception(
-                            "The exchange to which an order is to be "
+                            "The broker to which an order is to be "
                             + "submitted must be specified when trading across "
-                            + "multiple venues. Please include the 'exchange' "
+                            + "multiple venues. Please include the 'broker' "
                             + "argument when creating an order."
                         )
                     else:
                         # Trading on single venue, auto fill
-                        order.exchange = self._broker_name
+                        order.broker = self._broker_name
 
         # Perform checks
         checked_orders = check_type(orders)
@@ -592,7 +651,7 @@ class AutoTraderBot:
 
         for order in orders:
             # Get relevant broker
-            broker = self._brokers[order.exchange]
+            broker = self._brokers[order.broker]
 
             # Fetch precision for instrument
             try:
@@ -608,10 +667,10 @@ class AutoTraderBot:
                 # Get order price from current bars
                 if self._req_liveprice:
                     # Fetch current price
-                    liveprice_func = getattr(
-                        self._get_data, f"_{self._feed.lower()}_liveprice"
+                    livequotes_func = getattr(
+                        self._get_data, f"_{self._feed.lower()}_livequotes"
                     )
-                    last_price = liveprice_func(order)
+                    last_price = livequotes_func(order)
                 else:
                     # Fetch pseudo-current price
                     try:
@@ -629,15 +688,15 @@ class AutoTraderBot:
 
                 if order.order_type not in ["close", "reduce", "modify"]:
                     if order.direction < 0:
-                        order_price = last_price["bid"]
-                        HCF = last_price["negativeHCF"]
+                        order_price = last_price[0].get('bid')
+                        HCF = None
                     else:
-                        order_price = last_price["ask"]
-                        HCF = last_price["positiveHCF"]
+                        order_price = last_price[0].get('ask')
+                        HCF = None
                 else:
                     # Close, reduce or modify order type, provide dummy inputs
-                    order_price = last_price["ask"]
-                    HCF = last_price["positiveHCF"]
+                    order_price = last_price[0].get('ask')
+                    HCF = None
 
             else:
                 # Do not provide order price yet
@@ -820,15 +879,16 @@ class AutoTraderBot:
             """Returns the current bars of data. If the inputted data is for
             quote bars, then the quote_data boolean will be True.
             """
-            if len(data) > 0:
+            if len(self.data) > 0:
                 current_bars = self.Stream.get_trading_bars(
-                    data=data,
-                    quote_bars=quote_data,
+                    data=self.data,
+                    quote_bars=self.quote_data,
                     timestamp=timestamp,
                     processed_strategy_data=processed_strategy_data,
                 )
             else:
                 current_bars = None
+
             return current_bars
 
         def process_strat_data(original_strat_data, check_for_future_data):
